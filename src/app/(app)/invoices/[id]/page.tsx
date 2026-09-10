@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/common/page-header";
 import { InvoiceHeaderActions } from "@/components/invoices/invoice-header-actions";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { type PaymentRow, PaymentsCard } from "@/components/invoices/payments-card";
+import { PurchaseOrderCard } from "@/components/invoices/purchase-order-card";
+import { ShippingCard } from "@/components/invoices/shipping-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -19,6 +21,8 @@ import {
 import { getActiveContext } from "@/lib/auth/session";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { type PaymentInstallment, scheduleWithDates } from "@/lib/payments/payment-terms";
+import type { ShippingMode } from "@/lib/quotes/shipping";
+import { isShippingCarrier, trackingUrl } from "@/lib/shipping/carriers";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +31,12 @@ type InvoiceRow = {
   invoice_number: string;
   status: string;
   issue_date: string;
+  purchase_order: string | null;
+  shipping_mode: string | null;
+  shipping_cap: string | null;
+  shipping_actual: string | null;
+  tracking_number: string | null;
+  shipping_carrier: string | null;
   due_date: string | null;
   customer_name: string | null;
   customer_company: string | null;
@@ -66,7 +76,7 @@ export default async function InvoiceDetailPage({
   const { data: invoice } = await supabase
     .from("invoices")
     .select(
-      "id, invoice_number, status, issue_date, due_date, customer_name, customer_company, customer_email, subtotal, discount_amount, shipping_amount, tax_amount, total, amount_paid, amount_due, payment_terms, payment_schedule",
+      "id, invoice_number, status, issue_date, due_date, purchase_order, shipping_mode, shipping_cap, shipping_actual, tracking_number, shipping_carrier, customer_name, customer_company, customer_email, subtotal, discount_amount, shipping_amount, tax_amount, total, amount_paid, amount_due, payment_terms, payment_schedule",
     )
     .eq("id", id)
     .eq("tenant_id", ctx.orgId)
@@ -160,6 +170,7 @@ export default async function InvoiceDetailPage({
             status={invoice.status}
             canManage={canManage}
             existingJobId={job?.id ?? null}
+            trackingUrl={trackingUrl(invoice.shipping_carrier, invoice.tracking_number)}
           />
         }
       />
@@ -291,6 +302,25 @@ export default async function InvoiceDetailPage({
             suggestedAmount={nextDue?.remaining}
             canManage={canManage}
             payments={paymentRows}
+          />
+
+          <PurchaseOrderCard
+            invoiceId={invoice.id}
+            value={invoice.purchase_order}
+            canManage={canManage}
+          />
+
+          <ShippingCard
+            invoiceId={invoice.id}
+            mode={(invoice.shipping_mode ?? "standard") as ShippingMode}
+            cap={invoice.shipping_cap === null ? null : Number(invoice.shipping_cap)}
+            actual={invoice.shipping_actual === null ? null : Number(invoice.shipping_actual)}
+            billed={shipping}
+            tracking={invoice.tracking_number}
+            carrier={
+              isShippingCarrier(invoice.shipping_carrier) ? invoice.shipping_carrier : "other"
+            }
+            canManage={canManage}
           />
         </div>
       </div>

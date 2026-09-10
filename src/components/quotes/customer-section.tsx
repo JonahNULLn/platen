@@ -18,20 +18,32 @@ export type CustomerSlice = {
   company: string;
   email: string;
   phone: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
 
-  billToSameAsShipping: boolean;
-  billToLine1: string;
-  billToLine2: string;
-  billToCity: string;
-  billToState: string;
-  billToPostalCode: string;
-  billToCountry: string;
+  /**
+   * Billing is the primary address here, matching the customer record. The
+   * quotes/invoices tables store it the other way round — `customer_*` is the
+   * SHIPPING snapshot and `bill_to_*` is billing — so the builder maps between
+   * the two shapes on save and load. Keeping the UI billing-first means the
+   * quote page and the customer page ask the same question the same way.
+   */
+  billingLine1: string;
+  billingLine2: string;
+  billingCity: string;
+  billingState: string;
+  billingPostalCode: string;
+  billingCountry: string;
+
+  /** When true the goods go to the billing address and `ship*` is unused. */
+  shippingSameAsBilling: boolean;
+  shipLine1: string;
+  shipLine2: string;
+  shipCity: string;
+  shipState: string;
+  shipPostalCode: string;
+  shipCountry: string;
+
+  /** Invoicing email override; blank = use the contact email above. */
+  billToEmail: string;
 
   isTaxExempt: boolean;
   customerTaxExemptId: string;
@@ -78,19 +90,28 @@ export function CustomerSection({
       return;
     }
     // Snapshot the customer's fields onto the quote; tax-exempt defaults to
-    // the customer's status (still overridable per quote).
+    // the customer's status (still overridable per quote). The customer record
+    // is billing-first in exactly the same way, so this is a straight copy.
     onChange({
       customerId: c.id,
       name: c.name,
       company: c.company ?? "",
       email: c.email ?? "",
       phone: c.phone ?? "",
-      addressLine1: c.addressLine1 ?? "",
-      addressLine2: c.addressLine2 ?? "",
-      city: c.city ?? "",
-      state: c.state ?? "",
-      postalCode: c.postalCode ?? "",
-      country: c.country ?? "US",
+      billingLine1: c.addressLine1 ?? "",
+      billingLine2: c.addressLine2 ?? "",
+      billingCity: c.city ?? "",
+      billingState: c.state ?? "",
+      billingPostalCode: c.postalCode ?? "",
+      billingCountry: c.country ?? "US",
+      shippingSameAsBilling: !c.shipToDifferent,
+      shipLine1: c.shipToDifferent ? (c.shippingAddressLine1 ?? "") : "",
+      shipLine2: c.shipToDifferent ? (c.shippingAddressLine2 ?? "") : "",
+      shipCity: c.shipToDifferent ? (c.shippingCity ?? "") : "",
+      shipState: c.shipToDifferent ? (c.shippingState ?? "") : "",
+      shipPostalCode: c.shipToDifferent ? (c.shippingPostalCode ?? "") : "",
+      shipCountry: c.shipToDifferent ? (c.shippingCountry ?? "US") : "US",
+      billToEmail: c.billingEmail ?? "",
       isTaxExempt: c.isTaxExempt,
       customerTaxExemptId: c.taxExemptId ?? "",
     });
@@ -164,78 +185,90 @@ export function CustomerSection({
           </div>
         </div>
 
-        {/* Shipping */}
+        {/* Billing address — primary, same as on the customer record */}
         <div className="space-y-3">
-          <div className="text-xs font-medium text-muted-foreground">Shipping address</div>
+          <div className="text-xs font-medium text-muted-foreground">Billing address</div>
           <Input
-            value={value.addressLine1}
-            onChange={(e) => onChange({ addressLine1: e.target.value })}
+            value={value.billingLine1}
+            onChange={(e) => onChange({ billingLine1: e.target.value })}
             placeholder="Address line 1"
           />
           <Input
-            value={value.addressLine2}
-            onChange={(e) => onChange({ addressLine2: e.target.value })}
+            value={value.billingLine2}
+            onChange={(e) => onChange({ billingLine2: e.target.value })}
             placeholder="Address line 2 (optional)"
           />
           <div className="grid grid-cols-[1fr_5rem_6rem] gap-2">
             <Input
-              value={value.city}
-              onChange={(e) => onChange({ city: e.target.value })}
+              value={value.billingCity}
+              onChange={(e) => onChange({ billingCity: e.target.value })}
               placeholder="City"
             />
             <Input
-              value={value.state}
+              value={value.billingState}
               maxLength={2}
-              onChange={(e) => onChange({ state: e.target.value.toUpperCase() })}
+              onChange={(e) => onChange({ billingState: e.target.value.toUpperCase() })}
               placeholder="ST"
             />
             <Input
-              value={value.postalCode}
-              onChange={(e) => onChange({ postalCode: e.target.value })}
+              value={value.billingPostalCode}
+              onChange={(e) => onChange({ billingPostalCode: e.target.value })}
               placeholder="ZIP"
             />
           </div>
         </div>
 
-        {/* Billing */}
+        {/* Invoicing email + shipping */}
         <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="q-bill-email">
+              Invoicing email <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="q-bill-email"
+              type="email"
+              value={value.billToEmail}
+              onChange={(e) => onChange({ billToEmail: e.target.value })}
+              placeholder={value.email || "Defaults to the contact email"}
+            />
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
-              checked={value.billToSameAsShipping}
-              onChange={(e) => onChange({ billToSameAsShipping: e.target.checked })}
+              checked={value.shippingSameAsBilling}
+              onChange={(e) => onChange({ shippingSameAsBilling: e.target.checked })}
               className="size-4 cursor-pointer"
             />
-            <span>Bill to same as shipping</span>
+            <span>Shipping same as billing</span>
           </label>
-          {!value.billToSameAsShipping ? (
+          {!value.shippingSameAsBilling ? (
             <div className="space-y-3 rounded-md border border-border p-3">
-              <div className="text-xs font-medium text-muted-foreground">Billing address</div>
+              <div className="text-xs font-medium text-muted-foreground">Shipping address</div>
               <Input
-                value={value.billToLine1}
-                onChange={(e) => onChange({ billToLine1: e.target.value })}
+                value={value.shipLine1}
+                onChange={(e) => onChange({ shipLine1: e.target.value })}
                 placeholder="Address line 1"
               />
               <Input
-                value={value.billToLine2}
-                onChange={(e) => onChange({ billToLine2: e.target.value })}
+                value={value.shipLine2}
+                onChange={(e) => onChange({ shipLine2: e.target.value })}
                 placeholder="Address line 2 (optional)"
               />
               <div className="grid grid-cols-[1fr_5rem_6rem] gap-2">
                 <Input
-                  value={value.billToCity}
-                  onChange={(e) => onChange({ billToCity: e.target.value })}
+                  value={value.shipCity}
+                  onChange={(e) => onChange({ shipCity: e.target.value })}
                   placeholder="City"
                 />
                 <Input
-                  value={value.billToState}
+                  value={value.shipState}
                   maxLength={2}
-                  onChange={(e) => onChange({ billToState: e.target.value.toUpperCase() })}
+                  onChange={(e) => onChange({ shipState: e.target.value.toUpperCase() })}
                   placeholder="ST"
                 />
                 <Input
-                  value={value.billToPostalCode}
-                  onChange={(e) => onChange({ billToPostalCode: e.target.value })}
+                  value={value.shipPostalCode}
+                  onChange={(e) => onChange({ shipPostalCode: e.target.value })}
                   placeholder="ZIP"
                 />
               </div>

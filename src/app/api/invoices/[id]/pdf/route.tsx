@@ -25,7 +25,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { data: invoice } = await supabase
     .from("invoices")
     .select(
-      "tenant_id, invoice_number, status, issue_date, customer_name, customer_company, customer_email, customer_phone, customer_address_line1, customer_address_line2, customer_city, customer_state, customer_postal_code, customer_country, subtotal, discount_amount, tax_rate, tax_amount, is_tax_exempt, shipping_amount, total, deposit_amount, amount_paid, amount_due, payment_method_default, payment_terms, terms, notes, invoice_line_items(name, description, quantity, unit_price, total_price, color_name, sort_order, sizes_breakdown, placements_data)",
+      "tenant_id, invoice_number, status, issue_date, customer_name, customer_company, customer_email, customer_phone, customer_address_line1, customer_address_line2, customer_city, customer_state, customer_postal_code, customer_country, bill_to_same_as_shipping, bill_to_line1, bill_to_line2, bill_to_city, bill_to_state, bill_to_postal_code, bill_to_country, bill_to_email, purchase_order, approved_by_name, subtotal, discount_amount, tax_rate, tax_amount, is_tax_exempt, shipping_amount, shipping_mode, shipping_cap, shipping_actual, tracking_number, shipping_carrier, total, deposit_amount, amount_paid, amount_due, payment_method_default, payment_terms, terms, notes, invoice_line_items(name, description, quantity, unit_price, total_price, color_name, sort_order, sizes_breakdown, placements_data)",
     )
     .eq("id", id)
     .maybeSingle();

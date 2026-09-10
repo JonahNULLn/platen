@@ -23,7 +23,7 @@ const RANGES = {
   all: { label: "All time" },
 } as const;
 type RangeKey = keyof typeof RANGES;
-const DEFAULT_RANGE: RangeKey = "6m";
+const DEFAULT_RANGE: RangeKey = "ytd";
 const RANGE_OPTIONS = (Object.keys(RANGES) as RangeKey[]).map((k) => ({
   value: k,
   label: RANGES[k].label,

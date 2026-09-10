@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Printer } from "lucide-react";
+import { Download, Printer, Truck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Ring } from "@/components/ui/ring";
@@ -11,6 +11,11 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
  * an invoice is always saved, we point the iframe straight at the server route
  * (/api/invoices/[id]/pdf) and use the same URL for download + print. The hash
  * params hide the browser viewer's toolbar and fit the page to the iframe.
+ *
+ * The tracking number inside the PDF is a real link, but a PDF URI action has
+ * no "open in new tab" flag — the viewer decides, and Edge reuses the tab,
+ * replacing the preview. So the toolbar carries a normal HTML link as well,
+ * which reliably opens in a new tab.
  */
 const VIEWER_PARAMS = "#toolbar=0&navpanes=0&scrollbar=0&view=Fit&zoom=page-fit";
 
@@ -20,9 +25,17 @@ type Props = {
   /** Server PDF URL, e.g. /api/invoices/{id}/pdf. */
   url: string;
   invoiceNumber: string;
+  /** Carrier tracking deep-link, when the invoice has one. */
+  trackingUrl?: string | null;
 };
 
-export function InvoicePdfPreviewSheet({ open, onOpenChange, url, invoiceNumber }: Props) {
+export function InvoicePdfPreviewSheet({
+  open,
+  onOpenChange,
+  url,
+  invoiceNumber,
+  trackingUrl,
+}: Props) {
   const fileName = `${invoiceNumber || "invoice"}.pdf`;
 
   return (
@@ -37,6 +50,13 @@ export function InvoicePdfPreviewSheet({ open, onOpenChange, url, invoiceNumber 
             Preview · <span className="text-muted-foreground">{invoiceNumber}</span>
           </div>
           <div className="flex items-center gap-2">
+            {trackingUrl ? (
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <a href={trackingUrl} target="_blank" rel="noopener noreferrer">
+                  <Truck className="size-3.5" /> Track
+                </a>
+              </Button>
+            ) : null}
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <a href={url} download={fileName}>
                 <Download className="size-3.5" /> Download

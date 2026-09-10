@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { shippingModes } from "@/lib/quotes/shipping";
+
 const money = z.coerce.number().min(0, "Must be 0 or more");
 const nullableText = z.string().trim().nullable();
 
@@ -67,16 +69,22 @@ export const quoteInputSchema = z.object({
   billToState: nullableText,
   billToPostalCode: nullableText,
   billToCountry: nullableText,
+  /** Invoicing email override; null = fall back to the contact email. */
+  billToEmail: nullableText,
 
   customerTaxExemptId: nullableText,
 
   quoteDate: z.string().min(1),
   expiresAt: z.string().nullable(),
 
+  /** Customer's PO number — mirrored onto the linked invoice on save. */
+  purchaseOrder: nullableText,
+
   // Adjustments / tax (taxRate is a decimal, e.g. 0.0925).
   isTaxExempt: z.boolean(),
   taxRate: z.coerce.number().min(0),
   shippingAmount: money,
+  shippingMode: z.enum(shippingModes),
   discountType: z.enum(["amount", "percent"]),
   discountValue: money,
   depositType: z.enum(["amount", "percent"]),

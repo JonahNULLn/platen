@@ -8,13 +8,24 @@ import { createClient } from "@/lib/supabase/server";
 export type CustomerInput = {
   name: string;
   company: string;
+  /** Day-to-day contact email. */
   email: string;
+  /** Optional invoicing email; blank means "use the contact email". */
+  billingEmail: string;
   phone: string;
+  // Billing address.
   addressLine1: string;
   addressLine2: string;
   city: string;
   state: string;
   postalCode: string;
+  /** When false the shipping fields below are ignored — goods go to billing. */
+  shipToDifferent: boolean;
+  shippingAddressLine1: string;
+  shippingAddressLine2: string;
+  shippingCity: string;
+  shippingState: string;
+  shippingPostalCode: string;
   isTaxExempt: boolean;
   taxExemptId: string;
   defaultPaymentTerms: string;
@@ -49,6 +60,13 @@ export async function createCustomer(input: CustomerInput): Promise<CreateCustom
       company: clean(input.company),
       email: clean(input.email),
       phone: clean(input.phone),
+      billing_email: clean(input.billingEmail),
+      ship_to_different: input.shipToDifferent,
+      shipping_address_line1: input.shipToDifferent ? clean(input.shippingAddressLine1) : null,
+      shipping_address_line2: input.shipToDifferent ? clean(input.shippingAddressLine2) : null,
+      shipping_city: input.shipToDifferent ? clean(input.shippingCity) : null,
+      shipping_state: input.shipToDifferent ? clean(input.shippingState) : null,
+      shipping_postal_code: input.shipToDifferent ? clean(input.shippingPostalCode) : null,
       address_line1: clean(input.addressLine1),
       address_line2: clean(input.addressLine2),
       city: clean(input.city),
@@ -86,6 +104,13 @@ export async function updateCustomer(
       company: clean(input.company),
       email: clean(input.email),
       phone: clean(input.phone),
+      billing_email: clean(input.billingEmail),
+      ship_to_different: input.shipToDifferent,
+      shipping_address_line1: input.shipToDifferent ? clean(input.shippingAddressLine1) : null,
+      shipping_address_line2: input.shipToDifferent ? clean(input.shippingAddressLine2) : null,
+      shipping_city: input.shipToDifferent ? clean(input.shippingCity) : null,
+      shipping_state: input.shipToDifferent ? clean(input.shippingState) : null,
+      shipping_postal_code: input.shipToDifferent ? clean(input.shippingPostalCode) : null,
       address_line1: clean(input.addressLine1),
       address_line2: clean(input.addressLine2),
       city: clean(input.city),

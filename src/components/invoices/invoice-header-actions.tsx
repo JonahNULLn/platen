@@ -25,12 +25,14 @@ export function InvoiceHeaderActions({
   status,
   canManage,
   existingJobId,
+  trackingUrl,
 }: {
   invoiceId: string;
   invoiceNumber: string;
   status: string;
   canManage: boolean;
   existingJobId: string | null;
+  trackingUrl: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -132,6 +134,7 @@ export function InvoiceHeaderActions({
         onOpenChange={setPreviewOpen}
         url={pdfUrl}
         invoiceNumber={invoiceNumber}
+        trackingUrl={trackingUrl}
       />
     </>
   );

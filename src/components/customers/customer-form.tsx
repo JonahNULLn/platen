@@ -66,12 +66,19 @@ const emptyState: CustomerInput = {
   name: "",
   company: "",
   email: "",
+  billingEmail: "",
   phone: "",
   addressLine1: "",
   addressLine2: "",
   city: "",
   state: "",
   postalCode: "",
+  shipToDifferent: false,
+  shippingAddressLine1: "",
+  shippingAddressLine2: "",
+  shippingCity: "",
+  shippingState: "",
+  shippingPostalCode: "",
   isTaxExempt: false,
   taxExemptId: "",
   defaultPaymentTerms: "",
@@ -203,7 +210,7 @@ export function CustomerForm({
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="cust-email">Email</Label>
+              <Label htmlFor="cust-email">Contact email</Label>
               <Input
                 id="cust-email"
                 type="email"
@@ -224,13 +231,31 @@ export function CustomerForm({
               />
             </div>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="cust-billing-email">
+              Invoicing email <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="cust-billing-email"
+              type="email"
+              value={form.billingEmail}
+              onChange={(e) => update({ billingEmail: e.target.value })}
+              placeholder="ap@riverside.co"
+            />
+            <p className="text-xs text-muted-foreground">
+              Shown in the billed-to block on quotes and invoices. Leave blank to use the contact
+              email.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Address</CardTitle>
-          <CardDescription>Used on quotes, invoices, and shipping labels.</CardDescription>
+          <CardTitle>Billing address</CardTitle>
+          <CardDescription>
+            Where invoices go. Goods ship here too unless you set a separate shipping address.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -292,6 +317,79 @@ export function CustomerForm({
               />
             </div>
           </div>
+
+          {/* Phrased to match the quote builder. The column stores the
+              inverse (ship_to_different), so the checkbox negates it. */}
+          <label className="flex items-center gap-2 pt-1 text-sm">
+            <input
+              type="checkbox"
+              checked={!form.shipToDifferent}
+              onChange={(e) => update({ shipToDifferent: !e.target.checked })}
+              className="size-4 cursor-pointer"
+            />
+            <span>Shipping same as billing</span>
+          </label>
+
+          {form.shipToDifferent ? (
+            <div className="space-y-4 rounded-md border border-border p-3">
+              <div className="text-xs font-medium text-muted-foreground">Shipping address</div>
+              <div className="space-y-2">
+                <Label htmlFor="cust-ship-addr1">Address line 1</Label>
+                <Input
+                  id="cust-ship-addr1"
+                  value={form.shippingAddressLine1}
+                  onChange={(e) => update({ shippingAddressLine1: e.target.value })}
+                  placeholder="500 Warehouse Rd"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cust-ship-addr2">
+                  Address line 2{" "}
+                  <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="cust-ship-addr2"
+                  value={form.shippingAddressLine2}
+                  onChange={(e) => update({ shippingAddressLine2: e.target.value })}
+                  placeholder="Dock 4"
+                />
+              </div>
+              <div className="grid grid-cols-[1fr_auto_auto] gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="cust-ship-city">City</Label>
+                  <Input
+                    id="cust-ship-city"
+                    value={form.shippingCity}
+                    onChange={(e) => update({ shippingCity: e.target.value })}
+                    placeholder="Springfield"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cust-ship-state">State</Label>
+                  <Input
+                    id="cust-ship-state"
+                    maxLength={2}
+                    value={form.shippingState}
+                    onChange={(e) => update({ shippingState: e.target.value.toUpperCase() })}
+                    placeholder="IL"
+                    className="w-16"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cust-ship-zip">ZIP</Label>
+                  <Input
+                    id="cust-ship-zip"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={form.shippingPostalCode}
+                    onChange={(e) => update({ shippingPostalCode: e.target.value })}
+                    placeholder="62701"
+                    className="w-24"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

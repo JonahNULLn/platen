@@ -57,6 +57,11 @@ export const invoices = pgTable(
     status: text("status").notNull().default("pending"),
     issueDate: date("issue_date").defaultNow().notNull(),
     dueDate: date("due_date"),
+    /** Customer's PO number — snapshotted from the quote, then kept in sync. */
+    purchaseOrder: text("purchase_order"),
+    /** Who approved the source quote. Snapshotted so the invoice PDF can show
+     *  it without joining back to a quote that may since have been revised. */
+    approvedByName: text("approved_by_name"),
 
     // Customer snapshot (shipping) — preserved if the customer is deleted.
     customerName: text("customer_name"),
@@ -78,6 +83,8 @@ export const invoices = pgTable(
     billToState: text("bill_to_state"),
     billToPostalCode: text("bill_to_postal_code"),
     billToCountry: text("bill_to_country").default("US"),
+    /** Invoicing email override. Null = use the contact email (customerEmail). */
+    billToEmail: text("bill_to_email"),
 
     customerTaxExemptId: text("customer_tax_exempt_id"),
 
@@ -86,7 +93,21 @@ export const invoices = pgTable(
     taxRate: numeric("tax_rate", { precision: 5, scale: 4 }).default("0"),
     taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).default("0").notNull(),
     isTaxExempt: boolean("is_tax_exempt").default(false).notNull(),
+    /** The shipping actually billed: `shippingActual` once known, else the cap. */
     shippingAmount: numeric("shipping_amount", { precision: 12, scale: 2 }).default("0").notNull(),
+    /** Snapshotted from the quote — one of `shippingModes`. */
+    shippingMode: text("shipping_mode").default("standard").notNull(),
+    /** The not-to-exceed figure quoted, kept when mode is "estimate" so the
+     *  real cost can be entered later without losing what was promised. */
+    shippingCap: numeric("shipping_cap", { precision: 12, scale: 2 }),
+    /** Real shipping cost, filled in on the invoice once the order ships.
+     *  Null means "not known yet" — the invoice still bills the cap. */
+    shippingActual: numeric("shipping_actual", { precision: 12, scale: 2 }),
+    /** Carrier tracking number, entered alongside the actual shipping cost. */
+    trackingNumber: text("tracking_number"),
+    /** One of `shippingCarriers` — drives the tracking deep-link. "other"
+     *  (or null) means we can't build a URL, so the number stays plain text. */
+    shippingCarrier: text("shipping_carrier"),
     discountType: text("discount_type").default("amount").notNull(),
     discountValue: numeric("discount_value", { precision: 12, scale: 2 }).default("0").notNull(),
     discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).default("0").notNull(),
@@ -108,7 +129,8 @@ export const invoices = pgTable(
     internalNotes: text("internal_notes"),
     terms: text("terms"),
     paymentTerms: text("payment_terms"),
-    paymentMethodDefault: text("payment_method_default"),
+    /** Never empty — a DB trigger coerces NULL / "" / "None" to "Check". */
+    paymentMethodDefault: text("payment_method_default").default("Check"),
     /** Snapshotted from the source quote when the invoice is generated. */
     paymentSchedule: jsonb("payment_schedule").$type<PaymentInstallment[]>(),
 

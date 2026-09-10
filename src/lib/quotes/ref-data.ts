@@ -26,6 +26,7 @@ type CustomerRow = {
   name: string;
   company: string | null;
   email: string | null;
+  billing_email: string | null;
   phone: string | null;
   address_line1: string | null;
   address_line2: string | null;
@@ -33,6 +34,13 @@ type CustomerRow = {
   state: string | null;
   postal_code: string | null;
   country: string | null;
+  ship_to_different: boolean;
+  shipping_address_line1: string | null;
+  shipping_address_line2: string | null;
+  shipping_city: string | null;
+  shipping_state: string | null;
+  shipping_postal_code: string | null;
+  shipping_country: string | null;
   is_tax_exempt: boolean;
   tax_exempt_id: string | null;
   default_payment_terms: string | null;
@@ -88,7 +96,7 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
     supabase
       .from("customers")
       .select(
-        "id, name, company, email, phone, address_line1, address_line2, city, state, postal_code, country, is_tax_exempt, tax_exempt_id, default_payment_terms, logo_url",
+        "id, name, company, email, billing_email, phone, address_line1, address_line2, city, state, postal_code, country, ship_to_different, shipping_address_line1, shipping_address_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country, is_tax_exempt, tax_exempt_id, default_payment_terms, logo_url",
       )
       .eq("tenant_id", orgId)
       .order("name", { ascending: true }),
@@ -156,6 +164,7 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
     name: c.name,
     company: c.company,
     email: c.email,
+    billingEmail: c.billing_email,
     phone: c.phone,
     addressLine1: c.address_line1,
     addressLine2: c.address_line2,
@@ -163,6 +172,13 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
     state: c.state,
     postalCode: c.postal_code,
     country: c.country,
+    shipToDifferent: c.ship_to_different,
+    shippingAddressLine1: c.shipping_address_line1,
+    shippingAddressLine2: c.shipping_address_line2,
+    shippingCity: c.shipping_city,
+    shippingState: c.shipping_state,
+    shippingPostalCode: c.shipping_postal_code,
+    shippingCountry: c.shipping_country,
     isTaxExempt: c.is_tax_exempt,
     taxExemptId: c.tax_exempt_id,
     defaultPaymentTerms: c.default_payment_terms,

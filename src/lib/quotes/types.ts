@@ -37,13 +37,24 @@ export type RefCustomer = {
   name: string;
   company: string | null;
   email: string | null;
+  /** Optional invoicing email; null means "use the contact email". */
+  billingEmail: string | null;
   phone: string | null;
+  // Billing address.
   addressLine1: string | null;
   addressLine2: string | null;
   city: string | null;
   state: string | null;
   postalCode: string | null;
   country: string | null;
+  /** When false, goods ship to the billing address above. */
+  shipToDifferent: boolean;
+  shippingAddressLine1: string | null;
+  shippingAddressLine2: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingPostalCode: string | null;
+  shippingCountry: string | null;
   isTaxExempt: boolean;
   taxExemptId: string | null;
   defaultPaymentTerms: string | null;

@@ -101,14 +101,17 @@ function quoteFields(input: QuoteInput) {
     bill_to_state: input.billToState,
     bill_to_postal_code: input.billToPostalCode,
     bill_to_country: input.billToCountry,
+    bill_to_email: input.billToEmail,
     customer_tax_exempt_id: input.customerTaxExemptId,
     quote_date: input.quoteDate,
     expires_at: input.expiresAt,
+    purchase_order: input.purchaseOrder,
     is_tax_exempt: input.isTaxExempt,
     tax_rate: input.taxRate.toFixed(4),
     subtotal: money(totals.subtotal),
     tax_amount: money(totals.taxAmount),
     shipping_amount: money(totals.shippingAmount),
+    shipping_mode: input.shippingMode,
     discount_type: input.discountType,
     discount_value: money(input.discountValue),
     discount_amount: money(totals.discountAmount),
@@ -191,8 +194,17 @@ export async function saveQuote(
     const liError = await insertLineItems(supabase, orgId, quoteId, data.lineItems);
     if (liError) return { ok: false, error: liError };
 
+    // The PO is shared with the generated invoice — write it through so the two
+    // documents never disagree. Best-effort: a failure here must not fail the save.
+    await supabase
+      .from("invoices")
+      .update({ purchase_order: data.purchaseOrder })
+      .eq("quote_id", quoteId)
+      .eq("tenant_id", orgId);
+
     revalidatePath("/quotes");
     revalidatePath(`/quotes/${quoteId}`);
+    revalidatePath("/invoices");
     return { ok: true, id: quoteId };
   }
 
@@ -343,14 +355,17 @@ const CLONE_COLUMNS = [
   "bill_to_state",
   "bill_to_postal_code",
   "bill_to_country",
+  "bill_to_email",
   "customer_tax_exempt_id",
   "quote_date",
   "expires_at",
+  "purchase_order",
   "subtotal",
   "tax_rate",
   "tax_amount",
   "is_tax_exempt",
   "shipping_amount",
+  "shipping_mode",
   "discount_type",
   "discount_value",
   "discount_amount",

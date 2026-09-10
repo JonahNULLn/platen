@@ -38,6 +38,7 @@ import { customUnitBase, defaultSelections } from "@/lib/catalog/custom-product"
 import { formatCurrency } from "@/lib/format";
 import { type PaymentInstallment, scheduleFor } from "@/lib/payments/payment-terms";
 import { type PdfOrg, pdfQuoteFromBuilder } from "@/lib/pdf/snapshot";
+import { addressesForSave } from "@/lib/quotes/customer-address";
 import { computeQuoteTotals } from "@/lib/quotes/totals";
 import {
   type BuilderLine,
@@ -55,6 +56,8 @@ import {
 export type MetaSlice = {
   quoteDate: string;
   expiresAt: string;
+  /** Customer's PO number. Shared with the invoice generated from this quote. */
+  purchaseOrder: string;
   notes: string;
   internalNotes: string;
   terms: string;
@@ -76,12 +79,18 @@ type Props = {
   org: PdfOrg;
   quoteId?: string;
   initial?: QuoteBuilderInitial;
-  existing?: { quoteNumber: string; version: number; status: string };
+  existing?: {
+    quoteNumber: string;
+    version: number;
+    status: string;
+    approvedByName: string | null;
+  };
   detailActions?: React.ReactNode;
 };
 
-const NONE_METHOD = "__none__";
 const PAYMENT_METHODS = ["Cash", "Check", "Card", "ACH", "Other"];
+/** Every quote states how it will be paid, so there is no "none" option. */
+const DEFAULT_PAYMENT_METHOD = "Check";
 
 /**
  * The PDF renderer lives in its own client chunk (no SSR) and is only mounted
@@ -102,19 +111,20 @@ function emptyCustomer(): CustomerSlice {
     company: "",
     email: "",
     phone: "",
-    addressLine1: "",
-    addressLine2: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "US",
-    billToSameAsShipping: true,
-    billToLine1: "",
-    billToLine2: "",
-    billToCity: "",
-    billToState: "",
-    billToPostalCode: "",
-    billToCountry: "US",
+    billingLine1: "",
+    billingLine2: "",
+    billingCity: "",
+    billingState: "",
+    billingPostalCode: "",
+    billingCountry: "US",
+    shippingSameAsBilling: true,
+    shipLine1: "",
+    shipLine2: "",
+    shipCity: "",
+    shipState: "",
+    shipPostalCode: "",
+    shipCountry: "US",
+    billToEmail: "",
     isTaxExempt: false,
     customerTaxExemptId: "",
   };
@@ -126,17 +136,19 @@ function emptyMeta(terms: RefPaymentTerm[]): MetaSlice {
   return {
     quoteDate: new Date().toISOString().slice(0, 10),
     expiresAt: "",
+    purchaseOrder: "",
     notes: "",
     internalNotes: "",
     terms: "",
     paymentTerms: def?.name ?? "",
-    paymentMethodDefault: "",
+    paymentMethodDefault: DEFAULT_PAYMENT_METHOD,
     paymentSchedule: def ? def.installments.map((i) => ({ ...i })) : null,
   };
 }
 
 function emptyAdjustments(defaultTaxRate: number, isTaxExempt: boolean): AdjustmentsSlice {
   return {
+    shippingMode: "standard",
     discountType: "amount",
     discountValue: "0",
     shippingAmount: "0",
@@ -292,23 +304,37 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
       status: existing?.status ?? "draft",
       quoteDate: meta.quoteDate,
       expiresAt: meta.expiresAt,
+      purchaseOrder: meta.purchaseOrder,
+      approvedBy: existing?.approvedByName ?? null,
       customer: {
         name: customer.name,
         company: customer.company,
         email: customer.email,
         phone: customer.phone,
-        addressLine1: customer.addressLine1,
-        addressLine2: customer.addressLine2,
-        city: customer.city,
-        state: customer.state,
-        postalCode: customer.postalCode,
-        country: customer.country,
+        billToSameAsShipping: customer.shippingSameAsBilling,
+        billToLine1: customer.billingLine1,
+        billToLine2: customer.billingLine2,
+        billToCity: customer.billingCity,
+        billToState: customer.billingState,
+        billToPostalCode: customer.billingPostalCode,
+        billToCountry: customer.billingCountry,
+        billToEmail: customer.billToEmail,
+        // Shipping side of the preview: the billing address when they match.
+        addressLine1: customer.shippingSameAsBilling ? customer.billingLine1 : customer.shipLine1,
+        addressLine2: customer.shippingSameAsBilling ? customer.billingLine2 : customer.shipLine2,
+        city: customer.shippingSameAsBilling ? customer.billingCity : customer.shipCity,
+        state: customer.shippingSameAsBilling ? customer.billingState : customer.shipState,
+        postalCode: customer.shippingSameAsBilling
+          ? customer.billingPostalCode
+          : customer.shipPostalCode,
+        country: customer.shippingSameAsBilling ? customer.billingCountry : customer.shipCountry,
       },
       lines,
       adjustments: {
         discountType: adjustments.discountType,
         discountValue: num(adjustments.discountValue),
         shippingAmount: num(adjustments.shippingAmount),
+        shippingMode: adjustments.shippingMode,
         depositType: adjustments.depositType,
         depositValue: num(adjustments.depositValue),
         taxRate: adjustments.taxRate,
@@ -426,29 +452,17 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
         customerCompany: customer.company.trim() === "" ? null : customer.company.trim(),
         customerEmail: customer.email.trim() === "" ? null : customer.email.trim(),
         customerPhone: customer.phone.trim() === "" ? null : customer.phone.trim(),
-        customerAddressLine1:
-          customer.addressLine1.trim() === "" ? null : customer.addressLine1.trim(),
-        customerAddressLine2:
-          customer.addressLine2.trim() === "" ? null : customer.addressLine2.trim(),
-        customerCity: customer.city.trim() === "" ? null : customer.city.trim(),
-        customerState: customer.state.trim() === "" ? null : customer.state.trim(),
-        customerPostalCode: customer.postalCode.trim() === "" ? null : customer.postalCode.trim(),
-        customerCountry: customer.country.trim() === "" ? null : customer.country.trim(),
-        billToSameAsShipping: customer.billToSameAsShipping,
-        billToLine1: customer.billToLine1.trim() === "" ? null : customer.billToLine1.trim(),
-        billToLine2: customer.billToLine2.trim() === "" ? null : customer.billToLine2.trim(),
-        billToCity: customer.billToCity.trim() === "" ? null : customer.billToCity.trim(),
-        billToState: customer.billToState.trim() === "" ? null : customer.billToState.trim(),
-        billToPostalCode:
-          customer.billToPostalCode.trim() === "" ? null : customer.billToPostalCode.trim(),
-        billToCountry: customer.billToCountry.trim() === "" ? null : customer.billToCountry.trim(),
+        ...addressesForSave(customer),
+        billToEmail: customer.billToEmail.trim() === "" ? null : customer.billToEmail.trim(),
         customerTaxExemptId:
           customer.customerTaxExemptId.trim() === "" ? null : customer.customerTaxExemptId.trim(),
         quoteDate: meta.quoteDate,
         expiresAt: meta.expiresAt.trim() === "" ? null : meta.expiresAt,
+        purchaseOrder: meta.purchaseOrder.trim() === "" ? null : meta.purchaseOrder.trim(),
         isTaxExempt: customer.isTaxExempt,
         taxRate: adjustments.taxRate,
         shippingAmount: num(adjustments.shippingAmount),
+        shippingMode: adjustments.shippingMode,
         discountType: adjustments.discountType,
         discountValue: num(adjustments.discountValue),
         depositType: adjustments.depositType,
@@ -457,8 +471,7 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
         internalNotes: meta.internalNotes.trim() === "" ? null : meta.internalNotes.trim(),
         terms: meta.terms.trim() === "" ? null : meta.terms.trim(),
         paymentTerms: meta.paymentTerms.trim() === "" ? null : meta.paymentTerms.trim(),
-        paymentMethodDefault:
-          meta.paymentMethodDefault.trim() === "" ? null : meta.paymentMethodDefault.trim(),
+        paymentMethodDefault: meta.paymentMethodDefault.trim() || DEFAULT_PAYMENT_METHOD,
         paymentSchedule: meta.paymentSchedule,
         lineItems: lines.map((line) => ({
           tenantProductId: line.tenantProductId,
@@ -610,16 +623,13 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
               <div className="space-y-2">
                 <Label htmlFor="q-payment-method">Payment method</Label>
                 <Select
-                  value={meta.paymentMethodDefault === "" ? NONE_METHOD : meta.paymentMethodDefault}
-                  onValueChange={(v) =>
-                    updateMeta({ paymentMethodDefault: v === NONE_METHOD ? "" : v })
-                  }
+                  value={meta.paymentMethodDefault || DEFAULT_PAYMENT_METHOD}
+                  onValueChange={(v) => updateMeta({ paymentMethodDefault: v })}
                 >
-                  <SelectTrigger id="q-payment-method">
-                    <SelectValue placeholder="None" />
+                  <SelectTrigger id="q-payment-method" className="w-full">
+                    <SelectValue placeholder={DEFAULT_PAYMENT_METHOD} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NONE_METHOD}>None</SelectItem>
                     {PAYMENT_METHODS.map((m) => (
                       <SelectItem key={m} value={m}>
                         {m}
@@ -665,6 +675,19 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
                     ))}
                   </ul>
                 ) : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="q-po">Purchase order</Label>
+                <Input
+                  id="q-po"
+                  value={meta.purchaseOrder}
+                  onChange={(e) => updateMeta({ purchaseOrder: e.target.value })}
+                  maxLength={60}
+                  placeholder="Customer's PO number"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shown on the quote and the invoice — editing it in either place updates both.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="q-notes">Customer-facing notes</Label>

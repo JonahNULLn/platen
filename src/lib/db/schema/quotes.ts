@@ -44,6 +44,10 @@ export type LineItemType = (typeof lineItemTypes)[number];
 export const adjustmentTypes = ["amount", "percent"] as const;
 export type AdjustmentType = (typeof adjustmentTypes)[number];
 
+// Shipping modes are defined in lib/quotes/shipping.ts (client-safe) and
+// re-exported here so schema consumers can reach them the usual way.
+export { type ShippingMode, shippingModes } from "@/lib/quotes/shipping";
+
 /** One size's quantity + price within a line item's `sizes_breakdown`. */
 export type SizeBreakdownEntry = {
   size: string;
@@ -79,6 +83,12 @@ export const quotes = pgTable(
     parentQuoteId: uuid("parent_quote_id").references((): AnyPgColumn => quotes.id, {
       onDelete: "set null",
     }),
+    /**
+     * Customer's purchase-order number. Copied onto the invoice at generation
+     * time and kept in sync with it afterwards — editing either side updates
+     * both, so the pair always shows one PO.
+     */
+    purchaseOrder: text("purchase_order"),
 
     // Customer snapshot (shipping address) — preserved if the customer is deleted.
     customerName: text("customer_name"),
@@ -100,6 +110,8 @@ export const quotes = pgTable(
     billToState: text("bill_to_state"),
     billToPostalCode: text("bill_to_postal_code"),
     billToCountry: text("bill_to_country").default("US"),
+    /** Invoicing email override. Null = use the contact email (customerEmail). */
+    billToEmail: text("bill_to_email"),
 
     customerTaxExemptId: text("customer_tax_exempt_id"),
 
@@ -109,6 +121,8 @@ export const quotes = pgTable(
     taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).default("0").notNull(),
     isTaxExempt: boolean("is_tax_exempt").default(false).notNull(),
     shippingAmount: numeric("shipping_amount", { precision: 12, scale: 2 }).default("0").notNull(),
+    /** One of `shippingModes`. "estimate" means shippingAmount is a cap. */
+    shippingMode: text("shipping_mode").default("standard").notNull(),
     discountType: text("discount_type").default("amount").notNull(),
     discountValue: numeric("discount_value", { precision: 12, scale: 2 }).default("0").notNull(),
     discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).default("0").notNull(),
@@ -123,7 +137,8 @@ export const quotes = pgTable(
     internalNotes: text("internal_notes"),
     terms: text("terms"),
     paymentTerms: text("payment_terms"),
-    paymentMethodDefault: text("payment_method_default"),
+    /** Never empty — a DB trigger coerces NULL / "" / "None" to "Check". */
+    paymentMethodDefault: text("payment_method_default").default("Check"),
     /** Snapshot of the chosen payment term's installments (variable shape). */
     paymentSchedule: jsonb("payment_schedule").$type<PaymentInstallment[]>(),
 

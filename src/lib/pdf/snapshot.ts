@@ -1,7 +1,10 @@
-import type { PdfLineRow, PdfQuote } from "@/lib/pdf/quote-pdf";
+import type { PdfLineRow, PdfParty, PdfQuote } from "@/lib/pdf/quote-pdf";
+import type { ShippingMode } from "@/lib/quotes/shipping";
+import { shippingRowLabel } from "@/lib/quotes/shipping";
 import { computeLineTotals, computeQuoteTotals, round2 } from "@/lib/quotes/totals";
 import type { BuilderLine } from "@/lib/quotes/types";
 import { lineToCalc, sizeRank } from "@/lib/quotes/types";
+import { trackingUrl } from "@/lib/shipping/carriers";
 
 /** Org-side branding info the PDF needs. */
 export type PdfOrg = {
@@ -18,17 +21,50 @@ export type PdfOrg = {
   logoUrl: string | null;
 };
 
+/** Matches the PDF's own money formatting, for text baked into labels. */
+const pdfMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
 const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",
   year: "numeric",
 });
 
+/**
+ * Format a date for the PDF. Date-only values (YYYY-MM-DD) are parsed by parts:
+ * `new Date("2026-08-27")` is UTC midnight, which formats as the 26th in any
+ * negative-offset timezone — a full day off on every document.
+ */
 function formatDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return dateFormatter.format(d);
+}
+
+/**
+ * Build the two addressee blocks. When the quote/invoice says billing matches
+ * shipping, the billed-to block simply mirrors the shipped-to one rather than
+ * rendering the (empty) bill_to_* columns.
+ */
+function buildParties(src: {
+  name: string | null;
+  company: string | null;
+  /** Already resolved: the invoicing email if set, else the contact email. */
+  billEmail: string | null;
+  shipAddress: string[];
+  billSameAsShipping: boolean;
+  billAddress: string[];
+}): { billTo: PdfParty; shipTo: PdfParty } {
+  const name = src.company || src.name || null;
+  const shipTo: PdfParty = { name, address: src.shipAddress, email: null };
+  const billTo: PdfParty = {
+    name,
+    address: src.billSameAsShipping ? src.shipAddress : src.billAddress,
+    email: src.billEmail,
+  };
+  return { billTo, shipTo };
 }
 
 function buildAddress(
@@ -86,12 +122,23 @@ type DbQuote = {
   customer_state: string | null;
   customer_postal_code: string | null;
   customer_country: string | null;
+  bill_to_same_as_shipping: boolean;
+  bill_to_line1: string | null;
+  bill_to_line2: string | null;
+  bill_to_city: string | null;
+  bill_to_state: string | null;
+  bill_to_postal_code: string | null;
+  bill_to_country: string | null;
+  bill_to_email: string | null;
+  purchase_order: string | null;
+  approved_by_name: string | null;
   subtotal: string | number;
   discount_amount: string | number;
   tax_rate: string | number | null;
   tax_amount: string | number;
   is_tax_exempt: boolean;
   shipping_amount: string | number;
+  shipping_mode: string | null;
   total: string | number;
   deposit_amount: string | number;
   payment_method_default: string | null;
@@ -209,12 +256,13 @@ export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg)
     date: formatDate(quote.quote_date) ?? "",
     expiresAt: formatDate(quote.expires_at),
     status: quote.status,
-    customer: {
+    purchaseOrder: quote.purchase_order,
+    approvedBy: quote.approved_by_name,
+    ...buildParties({
       name: quote.customer_name,
       company: quote.customer_company,
-      email: quote.customer_email,
-      phone: quote.customer_phone,
-      address: buildAddress(
+      billEmail: quote.bill_to_email ?? quote.customer_email,
+      shipAddress: buildAddress(
         quote.customer_address_line1,
         quote.customer_address_line2,
         quote.customer_city,
@@ -222,7 +270,16 @@ export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg)
         quote.customer_postal_code,
         quote.customer_country,
       ),
-    },
+      billSameAsShipping: quote.bill_to_same_as_shipping,
+      billAddress: buildAddress(
+        quote.bill_to_line1,
+        quote.bill_to_line2,
+        quote.bill_to_city,
+        quote.bill_to_state,
+        quote.bill_to_postal_code,
+        quote.bill_to_country,
+      ),
+    }),
     from: orgToFrom(org),
     items: rows,
     subtotal: num(quote.subtotal),
@@ -231,6 +288,12 @@ export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg)
     taxAmount: num(quote.tax_amount),
     isTaxExempt: quote.is_tax_exempt,
     shippingAmount: num(quote.shipping_amount),
+    shippingLabel: shippingRowLabel(
+      (quote.shipping_mode ?? "standard") as ShippingMode,
+      pdfMoney.format(num(quote.shipping_amount)),
+    ),
+    trackingNumber: null,
+    trackingUrl: null,
     total: num(quote.total),
     depositAmount: num(quote.deposit_amount),
     paymentMethod: quote.payment_method_default,
@@ -256,12 +319,27 @@ type DbInvoice = {
   customer_state: string | null;
   customer_postal_code: string | null;
   customer_country: string | null;
+  bill_to_same_as_shipping: boolean;
+  bill_to_line1: string | null;
+  bill_to_line2: string | null;
+  bill_to_city: string | null;
+  bill_to_state: string | null;
+  bill_to_postal_code: string | null;
+  bill_to_country: string | null;
+  bill_to_email: string | null;
+  purchase_order: string | null;
+  approved_by_name: string | null;
   subtotal: string | number;
   discount_amount: string | number;
   tax_rate: string | number | null;
   tax_amount: string | number;
   is_tax_exempt: boolean;
   shipping_amount: string | number;
+  shipping_mode: string | null;
+  shipping_cap: string | number | null;
+  shipping_actual: string | number | null;
+  tracking_number: string | null;
+  shipping_carrier: string | null;
   total: string | number;
   deposit_amount: string | number;
   amount_paid: string | number;
@@ -290,12 +368,13 @@ export function pdfInvoiceFromDb(invoice: DbInvoice, items: DbLineItem[], org: P
     date: formatDate(invoice.issue_date) ?? "",
     expiresAt: null,
     status: invoice.status,
-    customer: {
+    purchaseOrder: invoice.purchase_order,
+    approvedBy: invoice.approved_by_name,
+    ...buildParties({
       name: invoice.customer_name,
       company: invoice.customer_company,
-      email: invoice.customer_email,
-      phone: invoice.customer_phone,
-      address: buildAddress(
+      billEmail: invoice.bill_to_email ?? invoice.customer_email,
+      shipAddress: buildAddress(
         invoice.customer_address_line1,
         invoice.customer_address_line2,
         invoice.customer_city,
@@ -303,7 +382,16 @@ export function pdfInvoiceFromDb(invoice: DbInvoice, items: DbLineItem[], org: P
         invoice.customer_postal_code,
         invoice.customer_country,
       ),
-    },
+      billSameAsShipping: invoice.bill_to_same_as_shipping,
+      billAddress: buildAddress(
+        invoice.bill_to_line1,
+        invoice.bill_to_line2,
+        invoice.bill_to_city,
+        invoice.bill_to_state,
+        invoice.bill_to_postal_code,
+        invoice.bill_to_country,
+      ),
+    }),
     from: orgToFrom(org),
     items: rows,
     subtotal: num(invoice.subtotal),
@@ -312,6 +400,16 @@ export function pdfInvoiceFromDb(invoice: DbInvoice, items: DbLineItem[], org: P
     taxAmount: num(invoice.tax_amount),
     isTaxExempt: invoice.is_tax_exempt,
     shippingAmount: num(invoice.shipping_amount),
+    shippingLabel: shippingRowLabel(
+      // Once the real cost is recorded the cap has served its purpose, so the
+      // row goes back to reading as an ordinary shipping charge.
+      invoice.shipping_actual != null
+        ? "standard"
+        : ((invoice.shipping_mode ?? "standard") as ShippingMode),
+      pdfMoney.format(num(invoice.shipping_cap ?? invoice.shipping_amount)),
+    ),
+    trackingNumber: invoice.tracking_number,
+    trackingUrl: trackingUrl(invoice.shipping_carrier, invoice.tracking_number),
     total,
     depositAmount: num(invoice.deposit_amount),
     paymentMethod: invoice.payment_method_default,
@@ -328,6 +426,8 @@ export type BuilderSnapshot = {
   status: string;
   quoteDate: string;
   expiresAt: string;
+  purchaseOrder: string;
+  approvedBy: string | null;
   customer: {
     name: string;
     company: string;
@@ -339,12 +439,21 @@ export type BuilderSnapshot = {
     state: string;
     postalCode: string;
     country: string;
+    billToSameAsShipping: boolean;
+    billToLine1: string;
+    billToLine2: string;
+    billToCity: string;
+    billToState: string;
+    billToPostalCode: string;
+    billToCountry: string;
+    billToEmail: string;
   };
   lines: BuilderLine[];
   adjustments: {
     discountType: "amount" | "percent";
     discountValue: number;
     shippingAmount: number;
+    shippingMode: ShippingMode;
     depositType: "amount" | "percent";
     depositValue: number;
     taxRate: number;
@@ -391,12 +500,13 @@ export function pdfQuoteFromBuilder(snap: BuilderSnapshot, org: PdfOrg): PdfQuot
     date: formatDate(snap.quoteDate) ?? "",
     expiresAt: formatDate(snap.expiresAt),
     status: snap.status,
-    customer: {
+    purchaseOrder: snap.purchaseOrder || null,
+    approvedBy: snap.approvedBy || null,
+    ...buildParties({
       name: snap.customer.name || null,
       company: snap.customer.company || null,
-      email: snap.customer.email || null,
-      phone: snap.customer.phone || null,
-      address: buildAddress(
+      billEmail: snap.customer.billToEmail || snap.customer.email || null,
+      shipAddress: buildAddress(
         snap.customer.addressLine1,
         snap.customer.addressLine2,
         snap.customer.city,
@@ -404,7 +514,16 @@ export function pdfQuoteFromBuilder(snap: BuilderSnapshot, org: PdfOrg): PdfQuot
         snap.customer.postalCode,
         snap.customer.country,
       ),
-    },
+      billSameAsShipping: snap.customer.billToSameAsShipping,
+      billAddress: buildAddress(
+        snap.customer.billToLine1,
+        snap.customer.billToLine2,
+        snap.customer.billToCity,
+        snap.customer.billToState,
+        snap.customer.billToPostalCode,
+        snap.customer.billToCountry,
+      ),
+    }),
     from: orgToFrom(org),
     items: rows,
     subtotal: totals.subtotal,
@@ -413,6 +532,12 @@ export function pdfQuoteFromBuilder(snap: BuilderSnapshot, org: PdfOrg): PdfQuot
     taxAmount: totals.taxAmount,
     isTaxExempt: snap.adjustments.isTaxExempt,
     shippingAmount: totals.shippingAmount,
+    shippingLabel: shippingRowLabel(
+      snap.adjustments.shippingMode,
+      pdfMoney.format(totals.shippingAmount),
+    ),
+    trackingNumber: null,
+    trackingUrl: null,
     total: totals.total,
     depositAmount: totals.depositAmount,
     paymentMethod: snap.paymentMethod || null,

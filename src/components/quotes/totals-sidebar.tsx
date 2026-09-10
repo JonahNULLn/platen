@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/format";
+import { type ShippingMode, shippingModes } from "@/lib/quotes/shipping";
+import { SHIPPING_MODE_HINTS, SHIPPING_MODE_LABELS } from "@/lib/quotes/shipping";
 import { computeQuoteTotals } from "@/lib/quotes/totals";
 import { type BuilderLine, lineToCalc } from "@/lib/quotes/types";
 
@@ -23,6 +25,7 @@ export type AdjustmentsSlice = {
   discountType: "amount" | "percent";
   discountValue: string;
   shippingAmount: string;
+  shippingMode: ShippingMode;
   depositType: "amount" | "percent";
   depositValue: string;
   taxRate: number; // decimal, e.g. 0.0925
@@ -97,14 +100,36 @@ export function TotalsSidebar({
           </div>
         </div>
 
-        {/* Shipping */}
+        {/* Shipping — the mode picker doubles as this section's heading, so
+            there's no separate "Shipping" label above it. */}
         <div className="space-y-2">
-          <Label htmlFor="qt-shipping">Shipping</Label>
+          <Label htmlFor="qt-shipping-mode" className="sr-only">
+            Shipping
+          </Label>
+          <Select
+            value={adjustments.shippingMode}
+            onValueChange={(v) => onChange({ shippingMode: v as ShippingMode })}
+          >
+            <SelectTrigger id="qt-shipping-mode" className="w-full">
+              <SelectValue placeholder={SHIPPING_MODE_LABELS.standard} />
+            </SelectTrigger>
+            <SelectContent>
+              {shippingModes.map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  {SHIPPING_MODE_LABELS[mode]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <MoneyInput
             id="qt-shipping"
             value={adjustments.shippingAmount}
             onChange={(e) => onChange({ shippingAmount: e.target.value })}
+            placeholder={adjustments.shippingMode === "estimate" ? "0.00 CAPPED" : "0.00"}
           />
+          {adjustments.shippingMode === "estimate" ? (
+            <p className="text-xs text-muted-foreground">{SHIPPING_MODE_HINTS.estimate}</p>
+          ) : null}
         </div>
 
         {/* Tax rate (exempt toggle lives on the customer section) */}

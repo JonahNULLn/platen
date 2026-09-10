@@ -141,6 +141,41 @@
       "when": 1783650689882,
       "tag": "0019_kind_aaron_stack",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789075911247,
+      "tag": "0020_flaky_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789077618429,
+      "tag": "0021_solid_rogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789079102789,
+      "tag": "0022_nosy_black_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789079918466,
+      "tag": "0023_needy_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789080749641,
+      "tag": "0024_fine_kate_bishop",
+      "breakpoints": true
     }
   ]
 }

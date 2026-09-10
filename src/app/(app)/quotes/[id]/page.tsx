@@ -6,7 +6,9 @@ import { QuoteStatusActions } from "@/components/quotes/quote-status-actions";
 import { getActiveOrgId } from "@/lib/auth/session";
 import type { PlacementEntry, SizeBreakdownEntry } from "@/lib/db/schema/quotes";
 import type { PaymentInstallment } from "@/lib/payments/payment-terms";
+import { addressesToSlice } from "@/lib/quotes/customer-address";
 import { getOrgPdfInfo, getQuoteRefData } from "@/lib/quotes/ref-data";
+import type { ShippingMode } from "@/lib/quotes/shipping";
 import { nextKey } from "@/lib/quotes/types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -50,12 +52,16 @@ type QuoteRow = {
   bill_to_state: string | null;
   bill_to_postal_code: string | null;
   bill_to_country: string | null;
+  bill_to_email: string | null;
   customer_tax_exempt_id: string | null;
   quote_date: string;
   expires_at: string | null;
+  purchase_order: string | null;
+  approved_by_name: string | null;
   is_tax_exempt: boolean;
   tax_rate: string | number | null;
   shipping_amount: string | number;
+  shipping_mode: string | null;
   discount_type: "amount" | "percent";
   discount_value: string | number;
   deposit_type: "amount" | "percent";
@@ -89,7 +95,7 @@ export default async function QuoteDetailPage({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, version, status, customer_id, customer_name, customer_company, customer_email, customer_phone, customer_address_line1, customer_address_line2, customer_city, customer_state, customer_postal_code, customer_country, bill_to_same_as_shipping, bill_to_line1, bill_to_line2, bill_to_city, bill_to_state, bill_to_postal_code, bill_to_country, customer_tax_exempt_id, quote_date, expires_at, is_tax_exempt, tax_rate, shipping_amount, discount_type, discount_value, deposit_type, deposit_value, notes, internal_notes, terms, payment_terms, payment_method_default, payment_schedule, quote_line_items(id, item_type, tenant_product_id, name, description, quantity, unit_price, unit_cost, total_price, color_name, notes, sort_order, sizes_breakdown, placements_data)",
+      "id, quote_number, version, status, customer_id, customer_name, customer_company, customer_email, customer_phone, customer_address_line1, customer_address_line2, customer_city, customer_state, customer_postal_code, customer_country, bill_to_same_as_shipping, bill_to_line1, bill_to_line2, bill_to_city, bill_to_state, bill_to_postal_code, bill_to_country, bill_to_email, customer_tax_exempt_id, quote_date, expires_at, purchase_order, approved_by_name, is_tax_exempt, tax_rate, shipping_amount, shipping_mode, discount_type, discount_value, deposit_type, deposit_value, notes, internal_notes, terms, payment_terms, payment_method_default, payment_schedule, quote_line_items(id, item_type, tenant_product_id, name, description, quantity, unit_price, unit_cost, total_price, color_name, notes, sort_order, sizes_breakdown, placements_data)",
     )
     .eq("id", id)
     .eq("tenant_id", orgId)
@@ -113,19 +119,8 @@ export default async function QuoteDetailPage({
       company: quote.customer_company ?? "",
       email: quote.customer_email ?? "",
       phone: quote.customer_phone ?? "",
-      addressLine1: quote.customer_address_line1 ?? "",
-      addressLine2: quote.customer_address_line2 ?? "",
-      city: quote.customer_city ?? "",
-      state: quote.customer_state ?? "",
-      postalCode: quote.customer_postal_code ?? "",
-      country: quote.customer_country ?? "US",
-      billToSameAsShipping: quote.bill_to_same_as_shipping,
-      billToLine1: quote.bill_to_line1 ?? "",
-      billToLine2: quote.bill_to_line2 ?? "",
-      billToCity: quote.bill_to_city ?? "",
-      billToState: quote.bill_to_state ?? "",
-      billToPostalCode: quote.bill_to_postal_code ?? "",
-      billToCountry: quote.bill_to_country ?? "US",
+      ...addressesToSlice(quote),
+      billToEmail: quote.bill_to_email ?? "",
       isTaxExempt: quote.is_tax_exempt,
       customerTaxExemptId: quote.customer_tax_exempt_id ?? "",
     },
@@ -133,6 +128,7 @@ export default async function QuoteDetailPage({
       discountType: quote.discount_type,
       discountValue: str(quote.discount_value),
       shippingAmount: str(quote.shipping_amount),
+      shippingMode: (quote.shipping_mode ?? "standard") as ShippingMode,
       depositType: quote.deposit_type,
       depositValue: str(quote.deposit_value),
       taxRate: Number(quote.tax_rate ?? 0),
@@ -141,10 +137,13 @@ export default async function QuoteDetailPage({
     meta: {
       quoteDate: quote.quote_date,
       expiresAt: quote.expires_at ?? "",
+      purchaseOrder: quote.purchase_order ?? "",
       notes: quote.notes ?? "",
       internalNotes: quote.internal_notes ?? "",
       terms: quote.terms ?? "",
       paymentTerms: quote.payment_terms ?? "",
+      // Older quotes predate the method being mandatory; the builder falls
+      // back to its default rather than showing an empty select.
       paymentMethodDefault: quote.payment_method_default ?? "",
       paymentSchedule: quote.payment_schedule ?? null,
     },
@@ -188,6 +187,7 @@ export default async function QuoteDetailPage({
         quoteNumber: quote.quote_number,
         version: quote.version,
         status: quote.status,
+        approvedByName: quote.approved_by_name,
       }}
       detailActions={
         <div className="flex items-center gap-2">

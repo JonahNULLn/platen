@@ -1,4 +1,4 @@
-import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Image, Link, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
 /**
  * Canonical quote PDF template. THIS FILE IS THE SOURCE OF TRUTH for both:
@@ -18,6 +18,14 @@ export type PdfLineRow = {
   amount: number;
 };
 
+/** One addressee block — "Billed to" / "Shipped to". */
+export type PdfParty = {
+  /** Company when there is one, otherwise the contact's name. */
+  name: string | null;
+  address: string[];
+  email: string | null;
+};
+
 export type PdfQuote = {
   /** Big heading + how the doc refers to itself. Defaults to "QUOTE". */
   docType?: "QUOTE" | "INVOICE";
@@ -25,15 +33,20 @@ export type PdfQuote = {
   payment?: { amountPaid: number; balanceDue: number } | null;
   number: string;
   date: string;
+  /**
+   * Kept on the model (and still edited in the app) but deliberately NOT
+   * printed — quotes don't show an expiry date any more.
+   */
   expiresAt: string | null;
   status: string;
-  customer: {
-    name: string | null;
-    company: string | null;
-    email: string | null;
-    phone: string | null;
-    address: string[];
-  };
+  /** Customer's PO number, shown under the document number. */
+  purchaseOrder: string | null;
+  /** Who approved the quote (snapshotted onto the invoice at generation). */
+  approvedBy: string | null;
+  /** Where the bill goes. Mirrors shipTo when "bill to same as shipping" is on. */
+  billTo: PdfParty;
+  /** Where the goods go. */
+  shipTo: PdfParty;
   from: {
     name: string;
     address: string[];
@@ -49,6 +62,14 @@ export type PdfQuote = {
   /** Show the tax row with "EXEMPT" instead of an amount. */
   isTaxExempt: boolean;
   shippingAmount: number;
+  /** How the shipping row reads — "Shipping", a capped estimate, or pickup. */
+  shippingLabel: string;
+  /** Carrier tracking, once an invoice has one. */
+  trackingNumber: string | null;
+  /** Deep-link to the carrier's tracking page. Null for an unknown carrier —
+   *  the number then prints as plain text. No carrier branding goes on the
+   *  document either way, just the number. */
+  trackingUrl: string | null;
   total: number;
   depositAmount: number;
   paymentMethod: string | null;
@@ -92,15 +113,16 @@ const styles = StyleSheet.create({
   },
   logo: { height: 44, objectFit: "contain" },
   logoTextFallback: { fontSize: 16, fontFamily: "Helvetica-Bold" },
-  quoteRef: { fontSize: 10, color: COLORS.text },
-  // "QUOTE" heading + date.
-  titleBlock: { marginBottom: 0 },
+  // Document reference stack (number, then PO) in the top-right corner.
+  refBlock: { alignItems: "flex-end" },
+  refLine: { fontSize: 10, color: COLORS.text },
+  refLabel: { fontFamily: "Helvetica-Bold" },
+  // "QUOTE" heading.
+  titleBlock: { marginBottom: 4 },
   title: { fontSize: 36, fontFamily: "Helvetica-Bold", color: COLORS.text, letterSpacing: 0 },
-  dateLineWrap: { marginTop: 48 },
-  dateLine: { fontSize: 10 },
-  dateLabel: { fontFamily: "Helvetica-Bold" },
-  // Billed to / From two-column block.
-  twoCol: { flexDirection: "row", marginTop: 24, gap: 32 },
+  // The 2x2 party/details grid: row 1 = us + order details, row 2 = bill/ship to.
+  twoCol: { flexDirection: "row", marginTop: 48, gap: 32 },
+  twoColRow2: { flexDirection: "row", marginTop: 20, gap: 32 },
   column: { flex: 1 },
   colHeading: {
     fontFamily: "Helvetica-Bold",
@@ -108,6 +130,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   colLine: { color: COLORS.muted, fontSize: 9.5 },
+  // Order-details rows — bold label, value in the same muted tone as addresses.
+  metaLine: { fontSize: 9.5, color: COLORS.muted },
+  metaLabel: { fontFamily: "Helvetica-Bold", color: COLORS.text },
+  // Links keep the palette (no blue) — the underline carries the affordance.
+  metaLink: { color: COLORS.muted, textDecoration: "underline" },
   // Items table.
   table: { marginTop: 28 },
   tableHeader: {
@@ -168,11 +195,51 @@ const styles = StyleSheet.create({
   termsText: { fontSize: 8.5, color: COLORS.muted, lineHeight: 1.45 },
 });
 
+/** One "Billed to" / "Shipped to" cell of the party grid. */
+function PartyColumn({ heading, party }: { heading: string; party: PdfParty }) {
+  return (
+    <View style={styles.column}>
+      <Text style={styles.colHeading}>{heading}</Text>
+      {party.name ? <Text style={styles.colLine}>{party.name}</Text> : null}
+      {party.address.map((line) => (
+        <Text key={line} style={styles.colLine}>
+          {line}
+        </Text>
+      ))}
+      {party.email ? <Text style={styles.colLine}>{party.email}</Text> : null}
+    </View>
+  );
+}
+
+/** One "Label: value" row in the order-details column. `href` turns the value
+ *  into a clickable link (used for carrier tracking). */
+function MetaRow({ label, value, href }: { label: string; value: string; href?: string | null }) {
+  return (
+    <Text style={styles.metaLine}>
+      <Text style={styles.metaLabel}>{label}: </Text>
+      {href ? (
+        <Link src={href} style={styles.metaLink}>
+          {value}
+        </Link>
+      ) : (
+        value
+      )}
+    </Text>
+  );
+}
+
 export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
+  const docType = quote.docType ?? "QUOTE";
+  // The number is the same on both documents, but it's named for whichever one
+  // the reader is holding.
+  const refLabel = docType === "INVOICE" ? "Invoice #" : "Quote #";
+  // A quote is dated when it's written; an invoice is dated when the order was placed.
+  const dateLabel = docType === "INVOICE" ? "Date ordered" : "Quote date";
+
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
-        {/* Top: logo + quote number */}
+        {/* Top: logo + document number and PO */}
         <View style={styles.topRow}>
           <View>
             {quote.from.logoUrl ? (
@@ -181,47 +248,29 @@ export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
               <Text style={styles.logoTextFallback}>{quote.from.name}</Text>
             )}
           </View>
-          <Text style={styles.quoteRef}>#{quote.number}</Text>
-        </View>
-
-        {/* QUOTE / INVOICE heading + date */}
-        <View style={styles.titleBlock}>
-          <Text style={styles.title}>{quote.docType ?? "QUOTE"}</Text>
-          <View style={styles.dateLineWrap}>
-            <Text style={styles.dateLine}>
-              <Text style={styles.dateLabel}>Date: </Text>
-              {quote.date}
-              {quote.expiresAt ? (
-                <Text>
-                  {"   "}
-                  <Text style={styles.dateLabel}>Expires: </Text>
-                  {quote.expiresAt}
-                </Text>
-              ) : null}
+          <View style={styles.refBlock}>
+            <Text style={styles.refLine}>
+              <Text style={styles.refLabel}>{refLabel} </Text>
+              {quote.number}
             </Text>
+            {quote.purchaseOrder ? (
+              <Text style={[styles.refLine, { marginTop: 2 }]}>
+                <Text style={styles.refLabel}>Purchase Order </Text>
+                {quote.purchaseOrder}
+              </Text>
+            ) : null}
           </View>
         </View>
 
-        {/* Billed to / From */}
+        {/* QUOTE / INVOICE heading */}
+        <View style={styles.titleBlock}>
+          <Text style={styles.title}>{docType}</Text>
+        </View>
+
+        {/* Party grid, row 1 — us on the left, order details on the right */}
         <View style={styles.twoCol}>
           <View style={styles.column}>
-            <Text style={styles.colHeading}>Billed to:</Text>
-            {/* Show company if present, otherwise the contact's full name —
-                never both, and phone is intentionally not shown here. */}
-            {quote.customer.company || quote.customer.name ? (
-              <Text style={styles.colLine}>{quote.customer.company ?? quote.customer.name}</Text>
-            ) : null}
-            {quote.customer.address.map((line) => (
-              <Text key={line} style={styles.colLine}>
-                {line}
-              </Text>
-            ))}
-            {quote.customer.email ? (
-              <Text style={styles.colLine}>{quote.customer.email}</Text>
-            ) : null}
-          </View>
-          <View style={styles.column}>
-            <Text style={styles.colHeading}>From:</Text>
+            <Text style={styles.colHeading}>From</Text>
             <Text style={styles.colLine}>{quote.from.name}</Text>
             {quote.from.address.map((line) => (
               <Text key={line} style={styles.colLine}>
@@ -231,6 +280,26 @@ export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
             {quote.from.email ? <Text style={styles.colLine}>{quote.from.email}</Text> : null}
             {quote.from.phone ? <Text style={styles.colLine}>{quote.from.phone}</Text> : null}
           </View>
+          <View style={styles.column}>
+            <Text style={styles.colHeading}>Order details</Text>
+            <MetaRow label={dateLabel} value={quote.date} />
+            {quote.paymentTerms ? (
+              <MetaRow label="Payment terms" value={quote.paymentTerms} />
+            ) : null}
+            {quote.paymentMethod ? (
+              <MetaRow label="Payment method" value={quote.paymentMethod} />
+            ) : null}
+            {quote.approvedBy ? <MetaRow label="Approved by" value={quote.approvedBy} /> : null}
+            {quote.trackingNumber ? (
+              <MetaRow label="Tracking" value={quote.trackingNumber} href={quote.trackingUrl} />
+            ) : null}
+          </View>
+        </View>
+
+        {/* Party grid, row 2 — where the bill goes, where the goods go */}
+        <View style={styles.twoColRow2}>
+          <PartyColumn heading="Billed to" party={quote.billTo} />
+          <PartyColumn heading="Shipped to" party={quote.shipTo} />
         </View>
 
         {/* Items */}
@@ -270,7 +339,7 @@ export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
           {/* Money rows — labels indented so these read as adjustments, not items */}
           {quote.shippingAmount > 0 ? (
             <View style={styles.tableRow} wrap={false}>
-              <Text style={styles.adjustmentLabel}>Shipping</Text>
+              <Text style={styles.adjustmentLabel}>{quote.shippingLabel}</Text>
               <Text style={styles.colQty} />
               <Text style={styles.colPrice} />
               <Text style={styles.colAmt}>{fmt(quote.shippingAmount)}</Text>
@@ -317,34 +386,19 @@ export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
           </View>
         </View>
 
-        {/* Footer blocks — payment method/terms, then (invoices only) the
-            paid / balance-due summary directly beneath. */}
-        {quote.paymentMethod || quote.paymentTerms || quote.payment ? (
+        {/* Invoice-only paid / balance-due summary. Payment method and terms
+            now live in the order-details column up top, so they aren't
+            repeated down here. */}
+        {quote.payment ? (
           <View style={styles.footerBlock}>
-            {quote.paymentMethod ? (
-              <Text style={styles.footerText}>
-                <Text style={styles.footerLabel}>Payment method: </Text>
-                {quote.paymentMethod}
-              </Text>
-            ) : null}
-            {quote.paymentTerms ? (
-              <Text style={[styles.footerText, { marginTop: 2 }]}>
-                <Text style={styles.footerLabel}>Payment terms: </Text>
-                {quote.paymentTerms}
-              </Text>
-            ) : null}
-            {quote.payment ? (
-              <>
-                <Text style={[styles.footerText, { marginTop: 2 }]}>
-                  <Text style={styles.footerLabel}>Amount paid: </Text>
-                  {fmt(quote.payment.amountPaid)}
-                </Text>
-                <Text style={[styles.footerText, { marginTop: 2 }]}>
-                  <Text style={styles.footerLabel}>Balance due: </Text>
-                  {fmt(quote.payment.balanceDue)}
-                </Text>
-              </>
-            ) : null}
+            <Text style={styles.footerText}>
+              <Text style={styles.footerLabel}>Amount paid: </Text>
+              {fmt(quote.payment.amountPaid)}
+            </Text>
+            <Text style={[styles.footerText, { marginTop: 2 }]}>
+              <Text style={styles.footerLabel}>Balance due: </Text>
+              {fmt(quote.payment.balanceDue)}
+            </Text>
           </View>
         ) : null}
 
