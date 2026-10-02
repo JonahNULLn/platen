@@ -124,9 +124,11 @@ export type BuilderSize = {
   size: string;
   qty: string;
   unitPrice: string;
-  /** Per-size wholesale cost (from the distributor variant); "" for custom items. */
+  /** Per-size cost: the distributor's wholesale price unless typed over. */
   unitCost: string;
   overridden: boolean;
+  /** true once the cost is typed over; the reset button restores wholesale. */
+  costOverridden: boolean;
 };
 export type BuilderPlacement = {
   key: string;

@@ -167,6 +167,7 @@ export default async function QuoteDetailPage({
           unitPrice: String(s.unitPrice),
           unitCost: s.unitCost === undefined || s.unitCost === null ? "" : String(s.unitCost),
           overridden: Boolean(s.overridden),
+          costOverridden: Boolean(s.costOverridden),
         })),
         // Relink to current placement settings and fill in ink cost for
         // quotes saved before it existed. The stored price is kept as-is.

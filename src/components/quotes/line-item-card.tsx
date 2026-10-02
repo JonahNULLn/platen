@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Copy, Plus, Shirt, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Plus, RotateCcw, Shirt, Trash2 } from "lucide-react";
 
 import { Combobox } from "@/components/common/combobox";
 import { MoneyInput } from "@/components/forms/money-input";
@@ -125,6 +125,13 @@ export function LineItemCard({
     applyCustom({ ...selections, colorCount: value }, line.quantity);
   }
 
+  /** This size's distributor wholesale price for the current color, or null
+   *  when there isn't one (custom product, or the variant left the catalog). */
+  function wholesaleCost(size: string): number | null {
+    const v = variantMatrix?.sizesByColor[line.colorName]?.find((x) => x.size === size);
+    return v?.cost ?? null;
+  }
+
   function updateSize(idx: number, patch: Partial<BuilderSize>) {
     const newSizes = line.sizes.map((s, i) => (i === idx ? { ...s, ...patch } : s));
     onChange({ ...line, sizes: newSizes });
@@ -141,6 +148,7 @@ export function LineItemCard({
       unitCost: v.cost === null ? "" : v.cost.toFixed(2),
       unitPrice: v.cost === null ? "0.00" : (v.cost + markup).toFixed(2),
       overridden: false,
+      costOverridden: false,
     }));
     onChange({ ...line, colorName: color, sizes });
   }
@@ -373,9 +381,15 @@ export function LineItemCard({
                     className={s.overridden ? "border-warning/50" : undefined}
                   />
                   {canSeeProfit ? (
-                    <span className="text-sm text-muted-foreground tabular-nums">
-                      {s.unitCost.trim() === "" ? "—" : formatCurrency(Number(s.unitCost))}
-                    </span>
+                    <CostInput
+                      value={s.unitCost}
+                      overridden={s.costOverridden}
+                      wholesale={wholesaleCost(s.size)}
+                      onChange={(v) => updateSize(i, { unitCost: v, costOverridden: true })}
+                      onReset={(w) =>
+                        updateSize(i, { unitCost: w.toFixed(2), costOverridden: false })
+                      }
+                    />
                   ) : null}
                 </div>
               ))}
@@ -597,5 +611,50 @@ export function LineItemCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Editable per-size cost (owner/admin only). Defaults to the distributor's
+ * wholesale price; typing over it marks it amber, and the reset button puts
+ * the wholesale price back. Cost only feeds cost/profit/margin — the price the
+ * customer sees is never touched by it.
+ */
+function CostInput({
+  value,
+  overridden,
+  wholesale,
+  onChange,
+  onReset,
+}: {
+  value: string;
+  overridden: boolean;
+  /** null when there's no wholesale price to go back to. */
+  wholesale: number | null;
+  onChange: (value: string) => void;
+  onReset: (wholesale: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <MoneyInput
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Cost"
+        className={cn("min-w-0 flex-1", overridden && "border-warning/50")}
+      />
+      {overridden && wholesale !== null ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onReset(wholesale)}
+          aria-label={`Reset cost to wholesale (${formatCurrency(wholesale)})`}
+          title={`Reset to wholesale (${formatCurrency(wholesale)})`}
+          className="shrink-0 text-muted-foreground"
+        >
+          <RotateCcw className="size-3.5" />
+        </Button>
+      ) : null}
+    </div>
   );
 }

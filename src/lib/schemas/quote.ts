@@ -11,6 +11,7 @@ export const sizeBreakdownEntrySchema = z.object({
   unitPrice: z.coerce.number().min(0),
   unitCost: z.coerce.number().min(0).nullable().optional(),
   overridden: z.boolean().optional(),
+  costOverridden: z.boolean().optional(),
 });
 
 export const placementEntrySchema = z.object({

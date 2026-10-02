@@ -491,6 +491,7 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
                   unitPrice: num(s.unitPrice),
                   unitCost: s.unitCost.trim() === "" ? null : num(s.unitCost),
                   overridden: s.overridden,
+                  costOverridden: s.costOverridden,
                 }))
               : null,
           placementsData:

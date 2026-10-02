@@ -57,6 +57,12 @@ export type SizeBreakdownEntry = {
   unitCost?: number | null;
   /** true when this size's price was manually overridden. */
   overridden?: boolean;
+  /**
+   * true when this size's cost was typed in rather than taken from the
+   * distributor's wholesale price (a deal, a different supplier, freight…).
+   * Cost side only — never changes the price.
+   */
+  costOverridden?: boolean;
 };
 
 /** One placement within a line item's `placements_data`. */
