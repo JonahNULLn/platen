@@ -48,6 +48,7 @@ export async function savePlacements(rows: PlacementInput[]): Promise<MutateResu
       tenant_id: orgId,
       name: p.name,
       default_price: p.defaultPrice.toFixed(2),
+      ink_cost_per_color: p.inkCostPerColor.toFixed(4),
       sort_order: i + 1,
     }));
     const { error } = await supabase.from("placement_options").insert(insertRows);

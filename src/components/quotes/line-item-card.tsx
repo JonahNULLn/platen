@@ -163,6 +163,7 @@ export function LineItemCard({
           placementName: first?.name ?? "",
           colorCount: String(colorCount),
           price: price.toFixed(2),
+          inkCostPerColor: first?.inkCostPerColor ?? null,
         },
       ],
     });
@@ -177,6 +178,7 @@ export function LineItemCard({
       placementId: placement.id,
       placementName: placement.name,
       price: price.toFixed(2),
+      inkCostPerColor: placement.inkCostPerColor,
     });
   }
 

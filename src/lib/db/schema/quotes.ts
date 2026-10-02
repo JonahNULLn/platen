@@ -65,6 +65,13 @@ export type PlacementEntry = {
   placementName: string;
   colorCount: number;
   price: number;
+  /**
+   * What one ink color cost us at this placement when it was picked —
+   * snapshotted so later rate changes don't rewrite past profit. Cost side
+   * only. Absent on quotes saved before ink cost existed; null for
+   * hand-typed placements.
+   */
+  inkCostPerColor?: number | null;
 };
 
 export const quotes = pgTable(

@@ -63,7 +63,13 @@ export type RefCustomer = {
 export type RefCategory = { id: string; name: string };
 export type RefSize = { label: string; upcharge: number };
 export type RefColor = { id: string; name: string; hex: string | null };
-export type RefPlacement = { id: string; name: string; defaultPrice: number };
+export type RefPlacement = {
+  id: string;
+  name: string;
+  defaultPrice: number;
+  /** Our ink cost per color per print — cost side only. */
+  inkCostPerColor: number;
+};
 export type RefColorTier = { colorCount: number; price: number };
 export type RefFee = { id: string; name: string; defaultAmount: number; isPerColor: boolean };
 export type RefPaymentTerm = {
@@ -128,6 +134,8 @@ export type BuilderPlacement = {
   placementName: string;
   colorCount: string;
   price: string;
+  /** Snapshotted from the placement when picked; null = unknown ($0). Not editable. */
+  inkCostPerColor: number | null;
 };
 export type BuilderLine = {
   key: string;
@@ -211,6 +219,7 @@ export function lineToCalc(line: BuilderLine): LineItemCalc {
             placementName: p.placementName,
             colorCount: Math.trunc(n(p.colorCount)),
             price: n(p.price),
+            inkCostPerColor: p.inkCostPerColor,
           }))
         : null,
   };

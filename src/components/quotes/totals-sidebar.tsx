@@ -199,6 +199,10 @@ export function TotalsSidebar({
             </div>
             <Row label="Cost" value={formatCurrency(totals.cost)} small />
             <Row label="Profit" value={formatCurrency(totals.profit)} small />
+            {/* A slice of Profit above, not an extra amount — already counted. */}
+            <div className="pl-3 text-muted-foreground">
+              <Row label="Print profit" value={formatCurrency(totals.printProfit)} small />
+            </div>
             <Row label="Margin" value={`${totals.marginPct.toFixed(1)}%`} small />
           </div>
         ) : null}

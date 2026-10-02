@@ -7,7 +7,12 @@ import { isManager, requireSettingsAccess } from "@/lib/auth/settings-access";
 import type { PaymentInstallment } from "@/lib/payments/payment-terms";
 import { createClient } from "@/lib/supabase/server";
 
-type PlacementRow = { id: string; name: string; default_price: string | number | null };
+type PlacementRow = {
+  id: string;
+  name: string;
+  default_price: string | number | null;
+  ink_cost_per_color: string | number | null;
+};
 type PaymentTermRow = {
   id: string;
   name: string;
@@ -34,7 +39,7 @@ export default async function PricingRulesSettingsPage() {
     await Promise.all([
       supabase
         .from("placement_options")
-        .select("id, name, default_price, sort_order")
+        .select("id, name, default_price, ink_cost_per_color, sort_order")
         .eq("tenant_id", orgId)
         .order("sort_order", { ascending: true }),
       supabase
@@ -88,6 +93,8 @@ export default async function PricingRulesSettingsPage() {
         initialPlacements={placementRows.map((p) => ({
           name: p.name,
           defaultPrice: p.default_price === null ? "0" : String(p.default_price),
+          // Number() drops the DB's trailing zeros: "0.0500" shows as "0.05".
+          inkCostPerColor: String(Number(p.ink_cost_per_color ?? 0)),
         }))}
         initialTiers={tierRows.map((t) => ({
           colorCount: String(t.color_count),

@@ -34,6 +34,15 @@ export const placementOptions = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     defaultPrice: numeric("default_price", { precision: 10, scale: 2 }).default("0"),
+    /**
+     * What one ink color costs US for one print at this placement, per garment
+     * (a full back uses far more ink than a left chest). Print cost = this x
+     * the number of colors. Four decimals because ink is often a fraction of a
+     * cent per print. Cost side only — never shown to customers.
+     */
+    inkCostPerColor: numeric("ink_cost_per_color", { precision: 10, scale: 4 })
+      .default("0")
+      .notNull(),
     sortOrder: integer("sort_order"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

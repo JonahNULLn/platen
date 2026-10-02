@@ -7,6 +7,7 @@ import { getActiveOrgId } from "@/lib/auth/session";
 import type { PlacementEntry, SizeBreakdownEntry } from "@/lib/db/schema/quotes";
 import type { PaymentInstallment } from "@/lib/payments/payment-terms";
 import { addressesToSlice } from "@/lib/quotes/customer-address";
+import { hydratePlacement } from "@/lib/quotes/placements";
 import { getOrgPdfInfo, getQuoteRefData } from "@/lib/quotes/ref-data";
 import type { ShippingMode } from "@/lib/quotes/shipping";
 import { nextKey } from "@/lib/quotes/types";
@@ -167,9 +168,11 @@ export default async function QuoteDetailPage({
           unitCost: s.unitCost === undefined || s.unitCost === null ? "" : String(s.unitCost),
           overridden: Boolean(s.overridden),
         })),
+        // Relink to current placement settings and fill in ink cost for
+        // quotes saved before it existed. The stored price is kept as-is.
         placements: (li.placements_data ?? []).map((p) => ({
           key: nextKey("p"),
-          placementId: p.placementId,
+          ...hydratePlacement(p, refData.placements),
           placementName: p.placementName,
           colorCount: String(p.colorCount),
           price: String(p.price),

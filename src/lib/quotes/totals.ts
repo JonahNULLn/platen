@@ -11,6 +11,10 @@ import type { PlacementEntry, SizeBreakdownEntry } from "@/lib/db/schema/quotes"
  *     base), multiplied by the line's total quantity.
  *   - line total = Σ(size.qty × size.unitPrice) + totalQty × Σ(placement.price)
  *   - Fee / simple custom lines are just quantity × unitPrice.
+ *
+ * Cost mirrors that: garment cost per size, plus each placement's ink cost
+ * (rate per color × colors) for every garment printed. Ink cost is counted
+ * only where placements are priced, so cost and price stay comparable.
  */
 
 export type LineItemCalc = {
@@ -25,6 +29,12 @@ export type LineTotals = {
   quantity: number;
   totalPrice: number;
   totalCost: number;
+  /**
+   * The printing slice of this line's profit: placement charges minus ink.
+   * A breakdown only — it's already inside totalPrice/totalCost, so never
+   * subtract it from anything.
+   */
+  printProfit: number;
 };
 
 export function round2(n: number): number {
@@ -46,10 +56,16 @@ export function computeLineTotals(line: LineItemCalc): LineTotals {
       (sum, p) => sum + (p.price || 0),
       0,
     );
+    // Missing ink cost (old quotes, hand-typed placements) counts as $0.
+    const inkPerGarment = (line.placementsData ?? []).reduce(
+      (sum, p) => sum + (p.inkCostPerColor ?? 0) * (p.colorCount || 0),
+      0,
+    );
     return {
       quantity,
       totalPrice: round2(garment + quantity * placementPerGarment),
-      totalCost: round2(cost),
+      totalCost: round2(cost + quantity * inkPerGarment),
+      printProfit: round2(quantity * (placementPerGarment - inkPerGarment)),
     };
   }
   const quantity = line.quantity || 0;
@@ -57,6 +73,8 @@ export function computeLineTotals(line: LineItemCalc): LineTotals {
     quantity,
     totalPrice: round2(quantity * (line.unitPrice || 0)),
     totalCost: round2(quantity * (line.unitCost ?? 0)),
+    // Unsized lines don't price their placements, so there's no print slice.
+    printProfit: 0,
   };
 }
 
@@ -81,15 +99,22 @@ export type QuoteTotals = {
   profit: number;
   marginPct: number;
   depositAmount: number;
+  /**
+   * How much of `profit` came from printing (placement charges − ink cost),
+   * before any order discount. Informational: it's already counted in profit.
+   */
+  printProfit: number;
 };
 
 export function computeQuoteTotals(lines: LineItemCalc[], adj: QuoteAdjustments): QuoteTotals {
   let subtotal = 0;
   let cost = 0;
+  let printProfit = 0;
   for (const line of lines) {
     const t = computeLineTotals(line);
     subtotal += t.totalPrice;
     cost += t.totalCost;
+    printProfit += t.printProfit;
   }
   subtotal = round2(subtotal);
   cost = round2(cost);
@@ -128,5 +153,6 @@ export function computeQuoteTotals(lines: LineItemCalc[], adj: QuoteAdjustments)
     profit,
     marginPct,
     depositAmount,
+    printProfit: round2(printProfit),
   };
 }

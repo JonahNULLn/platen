@@ -500,6 +500,7 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
                   placementName: p.placementName,
                   colorCount: Math.trunc(num(p.colorCount)),
                   price: num(p.price),
+                  inkCostPerColor: p.inkCostPerColor,
                 }))
               : null,
         })),

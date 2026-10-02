@@ -5,9 +5,16 @@ const money = z.coerce
   .min(0, "Must be 0 or more")
   .multipleOf(0.01, "At most 2 decimal places");
 
+/** Ink cost runs to fractions of a cent, so it gets 4 decimals, not 2. */
+const inkCost = z.coerce
+  .number()
+  .min(0, "Must be 0 or more")
+  .multipleOf(0.0001, "At most 4 decimal places");
+
 export const placementSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   defaultPrice: money,
+  inkCostPerColor: inkCost,
 });
 export const placementsSchema = z.array(placementSchema);
 export type PlacementInput = z.infer<typeof placementSchema>;

@@ -18,6 +18,7 @@ export const placementEntrySchema = z.object({
   placementName: z.string().trim().min(1),
   colorCount: z.coerce.number().int().min(0),
   price: z.coerce.number().min(0),
+  inkCostPerColor: z.coerce.number().min(0).nullable().optional(),
 });
 
 /** Snapshot of a chosen payment term's installments, stored on the quote. */

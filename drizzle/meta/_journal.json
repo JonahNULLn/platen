@@ -176,6 +176,13 @@
       "when": 1789080749641,
       "tag": "0024_fine_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790901868816,
+      "tag": "0025_loose_venom",
+      "breakpoints": true
     }
   ]
 }

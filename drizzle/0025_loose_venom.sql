@@ -1,0 +1,1 @@
+ALTER TABLE "placement_options" ADD COLUMN "ink_cost_per_color" numeric(10, 4) DEFAULT '0' NOT NULL;

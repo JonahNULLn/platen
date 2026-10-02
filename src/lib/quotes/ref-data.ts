@@ -126,7 +126,7 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
       .order("sort_order", { ascending: true }),
     supabase
       .from("placement_options")
-      .select("id, name, default_price")
+      .select("id, name, default_price, ink_cost_per_color")
       .eq("tenant_id", orgId)
       .order("sort_order", { ascending: true }),
     supabase
@@ -225,9 +225,21 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
     colors: ((colors as RefColor[] | null) ?? []) as RefColor[],
     placements: (
       (placements as
-        | { id: string; name: string; default_price: string | number | null }[]
+        | {
+            id: string;
+            name: string;
+            default_price: string | number | null;
+            ink_cost_per_color: string | number | null;
+          }[]
         | null) ?? []
-    ).map((p): RefPlacement => ({ id: p.id, name: p.name, defaultPrice: num(p.default_price) })),
+    ).map(
+      (p): RefPlacement => ({
+        id: p.id,
+        name: p.name,
+        defaultPrice: num(p.default_price),
+        inkCostPerColor: num(p.ink_cost_per_color),
+      }),
+    ),
     colorTiers: (
       (colorTiers as { color_count: number; price: string | number }[] | null) ?? []
     ).map((t): RefColorTier => ({ colorCount: t.color_count, price: num(t.price) })),

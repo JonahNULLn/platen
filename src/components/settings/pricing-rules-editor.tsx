@@ -18,7 +18,7 @@ import {
   savePlacements,
 } from "@/lib/actions/pricing-rules";
 
-type PlacementField = { name: string; defaultPrice: string };
+type PlacementField = { name: string; defaultPrice: string; inkCostPerColor: string };
 type TierField = { colorCount: string; price: string };
 type FeeField = { name: string; defaultAmount: string; isPerColor: boolean };
 
@@ -113,12 +113,17 @@ function PlacementsCard({ initial }: { initial: PlacementField[] }) {
         toast.error("Placement prices must be numbers");
         return;
       }
+      if (r.inkCostPerColor.trim() !== "" && Number.isNaN(Number(r.inkCostPerColor))) {
+        toast.error("Ink costs must be numbers");
+        return;
+      }
     }
     setSaving(true);
     const result = await savePlacements(
       rows.map((r) => ({
         name: r.name.trim(),
         defaultPrice: r.defaultPrice.trim() === "" ? 0 : Number(r.defaultPrice),
+        inkCostPerColor: r.inkCostPerColor.trim() === "" ? 0 : Number(r.inkCostPerColor),
       })),
     );
     setSaving(false);
@@ -135,14 +140,16 @@ function PlacementsCard({ initial }: { initial: PlacementField[] }) {
       <CardHeader>
         <CardTitle>Placements</CardTitle>
         <CardDescription>
-          Where decoration can go on a garment. The base price here is added on top of color-count
-          pricing.
+          Where decoration can go on a garment. The base price is what you charge, added on top of
+          color-count pricing. Ink cost is what one ink color costs you per print here — it never
+          appears on quotes.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-[1fr_8rem_auto] gap-2 text-xs font-medium text-muted-foreground">
+        <div className="grid grid-cols-[1fr_8rem_8rem_auto] gap-2 text-xs font-medium text-muted-foreground">
           <span>Name</span>
           <span>Base price</span>
+          <span>Ink cost / color</span>
           <span className="w-8" />
         </div>
         {rows.length === 0 ? (
@@ -150,7 +157,7 @@ function PlacementsCard({ initial }: { initial: PlacementField[] }) {
         ) : (
           rows.map((row, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: positional rows, no stable id
-            <div key={i} className="grid grid-cols-[1fr_8rem_auto] items-center gap-2">
+            <div key={i} className="grid grid-cols-[1fr_8rem_8rem_auto] items-center gap-2">
               <Input
                 value={row.name}
                 onChange={(e) => update(i, { name: e.target.value })}
@@ -159,6 +166,12 @@ function PlacementsCard({ initial }: { initial: PlacementField[] }) {
               <MoneyInput
                 value={row.defaultPrice}
                 onChange={(e) => update(i, { defaultPrice: e.target.value })}
+              />
+              <MoneyInput
+                value={row.inkCostPerColor}
+                onChange={(e) => update(i, { inkCostPerColor: e.target.value })}
+                placeholder="0.0000"
+                aria-label="Ink cost per color"
               />
               <Button
                 type="button"
@@ -179,7 +192,9 @@ function PlacementsCard({ initial }: { initial: PlacementField[] }) {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => setRows((prev) => [...prev, { name: "", defaultPrice: "0" }])}
+            onClick={() =>
+              setRows((prev) => [...prev, { name: "", defaultPrice: "0", inkCostPerColor: "0" }])
+            }
           >
             <Plus className="size-4" /> Add placement
           </Button>
