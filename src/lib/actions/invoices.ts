@@ -7,7 +7,7 @@ import { getActiveContext } from "@/lib/auth/session";
 import { formatCurrency } from "@/lib/format";
 import { notifyOrg } from "@/lib/notifications/notify";
 import { round2 } from "@/lib/quotes/totals";
-import { shippingCarriers } from "@/lib/shipping/carriers";
+import { type InvoiceShipment, shippingCarriers } from "@/lib/shipping/carriers";
 import { createClient } from "@/lib/supabase/server";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -172,18 +172,25 @@ export async function setInvoicePurchaseOrder(input: SetPurchaseOrderInput): Pro
   return { ok: true };
 }
 
+const shipmentInputSchema = z.object({
+  id: z.string().trim().min(1).max(64),
+  carrier: z.enum(shippingCarriers),
+  trackingNumber: z.string().trim().max(120),
+  /** This label's cost. Empty = not entered. Only used on estimate invoices. */
+  cost: z.string().trim(),
+});
+
 const shippingSchema = z.object({
   invoiceId: z.string().uuid(),
-  /** Empty string clears it — the invoice falls back to billing the cap. */
-  shippingActual: z.string().trim(),
-  trackingNumber: z.string().trim().max(120),
-  shippingCarrier: z.enum(shippingCarriers),
+  shipments: z.array(shipmentInputSchema).max(50, "That's a lot of packages — 50 max."),
 });
 export type SetShippingInput = z.input<typeof shippingSchema>;
 
 /**
- * Record the real shipping cost and tracking number on an invoice quoted with a
- * capped estimate.
+ * Save an invoice's packages: carrier + tracking number per label and, on an
+ * invoice quoted with a capped estimate, what each label cost. The packages'
+ * costs add up to the real shipping (`shipping_actual`); the customer's
+ * invoice only ever shows that one total.
  *
  * Shipping feeds tax and the grand total, so this re-runs the same arithmetic
  * the quote builder uses (see lib/quotes/totals.ts) against the invoice's own
@@ -198,14 +205,7 @@ export async function setInvoiceShipping(input: SetShippingInput): Promise<Resul
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid shipping" };
   }
-  const { invoiceId, shippingActual, trackingNumber, shippingCarrier } = parsed.data;
-
-  let actual: number | null = null;
-  if (shippingActual !== "") {
-    const n = Number(shippingActual);
-    if (!Number.isFinite(n) || n < 0) return { ok: false, error: "Enter a valid shipping amount." };
-    actual = round2(n);
-  }
+  const { invoiceId } = parsed.data;
 
   const ctx = await getActiveContext();
   if (!ctx) return { ok: false, error: "No active organization" };
@@ -217,7 +217,7 @@ export async function setInvoiceShipping(input: SetShippingInput): Promise<Resul
   const { data: invoice } = await supabase
     .from("invoices")
     .select(
-      "status, subtotal, discount_amount, tax_rate, is_tax_exempt, shipping_cap, shipping_amount, amount_paid",
+      "status, subtotal, discount_amount, tax_rate, is_tax_exempt, shipping_mode, shipping_cap, shipping_amount, shipping_actual, amount_paid",
     )
     .eq("id", invoiceId)
     .eq("tenant_id", ctx.orgId)
@@ -227,8 +227,10 @@ export async function setInvoiceShipping(input: SetShippingInput): Promise<Resul
       discount_amount: string | number;
       tax_rate: string | number | null;
       is_tax_exempt: boolean;
+      shipping_mode: string | null;
       shipping_cap: string | number | null;
       shipping_amount: string | number;
+      shipping_actual: string | number | null;
       amount_paid: string | number;
     }>();
   if (!invoice) return { ok: false, error: "Invoice not found." };
@@ -238,10 +240,40 @@ export async function setInvoiceShipping(input: SetShippingInput): Promise<Resul
     return Number.isFinite(parsedNum) ? parsedNum : 0;
   };
 
-  // Clearing the actual falls back to the cap, so the invoice always bills
+  // Only a capped estimate takes a real cost; every other mode bills the
+  // snapshot it was generated with, so label costs aren't recorded there.
+  const isEstimate = invoice.shipping_mode === "estimate";
+
+  const shipments: InvoiceShipment[] = [];
+  for (const [i, s] of parsed.data.shipments.entries()) {
+    let cost: number | null = null;
+    if (isEstimate && s.cost !== "") {
+      const c = Number(s.cost);
+      if (!Number.isFinite(c) || c < 0) {
+        return { ok: false, error: `Enter a valid cost for package ${i + 1}.` };
+      }
+      cost = round2(c);
+    }
+    // A row with neither a tracking number nor a cost is just an empty slot.
+    if (s.trackingNumber === "" && cost === null) continue;
+    shipments.push({ id: s.id, carrier: s.carrier, trackingNumber: s.trackingNumber, cost });
+  }
+
+  // The real shipping is the sum of the labels' costs; no costs entered means
+  // it isn't known yet. Non-estimate invoices never change their shipping.
+  const costs = shipments.map((s) => s.cost).filter((c): c is number => c !== null);
+  const actual = !isEstimate
+    ? invoice.shipping_actual == null
+      ? null
+      : n(invoice.shipping_actual)
+    : costs.length > 0
+      ? round2(costs.reduce((sum, c) => sum + c, 0))
+      : null;
+
+  // An unknown actual falls back to the cap, so the invoice always bills
   // something defensible rather than dropping to zero.
   const cap = invoice.shipping_cap == null ? n(invoice.shipping_amount) : n(invoice.shipping_cap);
-  const shipping = actual ?? cap;
+  const shipping = isEstimate ? (actual ?? cap) : n(invoice.shipping_amount);
 
   const taxableBase = round2(n(invoice.subtotal) - n(invoice.discount_amount));
   const taxRate = n(invoice.tax_rate);
@@ -259,12 +291,17 @@ export async function setInvoiceShipping(input: SetShippingInput): Promise<Resul
           ? "deposit_paid"
           : "paid";
 
+  // Keep the deprecated single-tracking columns mirrored to the first tracked
+  // package — older deploys that share this database still read them.
+  const firstTracked = shipments.find((s) => s.trackingNumber !== "") ?? null;
+
   const { error } = await supabase
     .from("invoices")
     .update({
+      shipments,
       shipping_actual: actual === null ? null : actual.toFixed(2),
-      tracking_number: trackingNumber === "" ? null : trackingNumber,
-      shipping_carrier: shippingCarrier,
+      tracking_number: firstTracked?.trackingNumber ?? null,
+      shipping_carrier: firstTracked?.carrier ?? null,
       shipping_amount: shipping.toFixed(2),
       tax_amount: taxAmount.toFixed(2),
       total: total.toFixed(2),

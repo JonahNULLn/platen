@@ -22,7 +22,7 @@ import { getActiveContext } from "@/lib/auth/session";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { type PaymentInstallment, scheduleWithDates } from "@/lib/payments/payment-terms";
 import type { ShippingMode } from "@/lib/quotes/shipping";
-import { isShippingCarrier, trackingUrl } from "@/lib/shipping/carriers";
+import { parseShipments, trackingGroups } from "@/lib/shipping/carriers";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -35,8 +35,7 @@ type InvoiceRow = {
   shipping_mode: string | null;
   shipping_cap: string | null;
   shipping_actual: string | null;
-  tracking_number: string | null;
-  shipping_carrier: string | null;
+  shipments: unknown;
   due_date: string | null;
   customer_name: string | null;
   customer_company: string | null;
@@ -76,7 +75,7 @@ export default async function InvoiceDetailPage({
   const { data: invoice } = await supabase
     .from("invoices")
     .select(
-      "id, invoice_number, status, issue_date, due_date, purchase_order, shipping_mode, shipping_cap, shipping_actual, tracking_number, shipping_carrier, customer_name, customer_company, customer_email, subtotal, discount_amount, shipping_amount, tax_amount, total, amount_paid, amount_due, payment_terms, payment_schedule",
+      "id, invoice_number, status, issue_date, due_date, purchase_order, shipping_mode, shipping_cap, shipping_actual, shipments, customer_name, customer_company, customer_email, subtotal, discount_amount, shipping_amount, tax_amount, total, amount_paid, amount_due, payment_terms, payment_schedule",
     )
     .eq("id", id)
     .eq("tenant_id", ctx.orgId)
@@ -120,6 +119,7 @@ export default async function InvoiceDetailPage({
   const discount = Number(invoice.discount_amount);
   const shipping = Number(invoice.shipping_amount);
   const tax = Number(invoice.tax_amount);
+  const shipments = parseShipments(invoice.shipments);
 
   // Payment schedule snapshot (carried from the quote) → progress against
   // payments recorded so far, with each installment's due date + overdue flag.
@@ -170,7 +170,7 @@ export default async function InvoiceDetailPage({
             status={invoice.status}
             canManage={canManage}
             existingJobId={job?.id ?? null}
-            trackingUrl={trackingUrl(invoice.shipping_carrier, invoice.tracking_number)}
+            tracking={trackingGroups(shipments)}
           />
         }
       />
@@ -316,10 +316,7 @@ export default async function InvoiceDetailPage({
             cap={invoice.shipping_cap === null ? null : Number(invoice.shipping_cap)}
             actual={invoice.shipping_actual === null ? null : Number(invoice.shipping_actual)}
             billed={shipping}
-            tracking={invoice.tracking_number}
-            carrier={
-              isShippingCarrier(invoice.shipping_carrier) ? invoice.shipping_carrier : "other"
-            }
+            shipments={shipments}
             canManage={canManage}
           />
         </div>

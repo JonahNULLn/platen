@@ -52,11 +52,15 @@ export function JobActivityDatesDialog({
     };
   }, [open, jobId]);
 
+  // Only events whose day was actually changed — untouched ones keep their
+  // exact timestamp (and so their order in the log).
+  const updates = events
+    .map((e) => ({ id: e.id, date: dates[e.id] ?? e.date }))
+    .filter((u, i) => u.date !== "" && u.date !== events[i]?.date);
+
   async function save() {
+    if (updates.length === 0) return;
     setSaving(true);
-    const updates = events
-      .map((e) => ({ id: e.id, date: dates[e.id] ?? e.date }))
-      .filter((u) => u.date);
     const res = await setJobActivityDates(jobId, updates);
     setSaving(false);
     if (!res.ok) {
@@ -110,7 +114,7 @@ export function JobActivityDatesDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={saving || loading || events.length === 0}>
+          <Button onClick={save} disabled={saving || loading || updates.length === 0}>
             {saving ? <Ring size="sm" className="text-current" /> : "Save dates"}
           </Button>
         </DialogFooter>

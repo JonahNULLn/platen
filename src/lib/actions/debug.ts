@@ -1,9 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { getActiveContext } from "@/lib/auth/session";
-import { DATE_FIELDS, ENTITY_TABLE, type EntityKind } from "@/lib/debug/date-fields";
+import {
+  DATE_FIELDS,
+  ENTITY_KEY,
+  ENTITY_TABLE,
+  type EntityKind,
+  entityKinds,
+  entityPath,
+  moveTimestampToDay,
+} from "@/lib/debug/date-fields";
 import { createClient } from "@/lib/supabase/server";
 
 type DatesResult = { ok: true; dates: Record<string, string> } | { ok: false; error: string };
@@ -33,7 +42,7 @@ export async function getEntityDates(kind: EntityKind, id: string): Promise<Date
   const { data, error } = await supabase
     .from(ENTITY_TABLE[kind])
     .select(fields.map((f) => f.column).join(", "))
-    .eq("id", id)
+    .eq(ENTITY_KEY[kind], id)
     .eq("tenant_id", ctx.orgId)
     .maybeSingle<Record<string, unknown>>();
   if (error) return { ok: false, error: error.message };
@@ -44,50 +53,85 @@ export async function getEntityDates(kind: EntityKind, id: string): Promise<Date
   return { ok: true, dates };
 }
 
+const setEntityDatesSchema = z.object({
+  kind: z.enum(entityKinds),
+  id: z.string().uuid(),
+  values: z.record(z.string(), z.string()),
+});
+
 /**
  * Debug-only: overwrite an entity's date columns (including created_at, which
  * the normal UI can't touch — used to backfill historical orders with real
  * dates). Owner/admin + tenant-scoped; only whitelisted columns are written.
+ *
+ * Only columns whose calendar day actually changed are written, and
+ * created_at keeps its time of day — so saving one field never silently
+ * rewrites the others. Returns the stored dates after the write.
  */
 export async function setEntityDates(
   kind: EntityKind,
   id: string,
   values: Record<string, string>,
-): Promise<Result> {
+): Promise<DatesResult> {
+  const parsed = setEntityDatesSchema.safeParse({ kind, id, values });
+  if (!parsed.success) return { ok: false, error: "Invalid request" };
+
   const ctx = await getActiveContext();
   if (!ctx) return { ok: false, error: "No active organization" };
   if (!MANAGE_ROLES.has(ctx.role)) {
     return { ok: false, error: "Only an owner or admin can edit dates." };
   }
-  const fields = DATE_FIELDS[kind];
-  if (!fields) return { ok: false, error: "Unknown entity" };
+  const fields = DATE_FIELDS[parsed.data.kind];
+  const table = ENTITY_TABLE[parsed.data.kind];
+  const key = ENTITY_KEY[parsed.data.kind];
+
+  const supabase = await createClient();
+  const { data: current, error: readError } = await supabase
+    .from(table)
+    .select(fields.map((f) => f.column).join(", "))
+    .eq(key, parsed.data.id)
+    .eq("tenant_id", ctx.orgId)
+    .maybeSingle<Record<string, unknown>>();
+  if (readError) return { ok: false, error: readError.message };
+  if (!current) return { ok: false, error: "Not found" };
 
   const update: Record<string, string | null> = {};
   for (const f of fields) {
-    const raw = values[f.column];
+    const raw = parsed.data.values[f.column];
     if (raw === undefined) continue;
-    const trimmed = raw.trim();
-    if (trimmed === "") {
+    const day = raw.trim();
+    if (day === toDateInput(current[f.column])) continue; // unchanged
+    if (day === "") {
       if (!f.nullable) return { ok: false, error: `${f.label} can't be empty.` };
       update[f.column] = null;
     } else {
-      if (!ISO_DATE.test(trimmed)) return { ok: false, error: `${f.label} must be a valid date.` };
-      update[f.column] = trimmed;
+      if (!ISO_DATE.test(day)) return { ok: false, error: `${f.label} must be a valid date.` };
+      update[f.column] = f.type === "timestamp" ? moveTimestampToDay(current[f.column], day) : day;
     }
   }
-  if (Object.keys(update).length === 0) return { ok: true };
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from(ENTITY_TABLE[kind])
-    .update(update)
-    .eq("id", id)
-    .eq("tenant_id", ctx.orgId);
-  if (error) return { ok: false, error: error.message };
+  if (Object.keys(update).length > 0) {
+    // .select() so a write that matched no row (RLS, wrong tenant) is an
+    // error instead of a silent no-op reported as success.
+    const { data: written, error } = await supabase
+      .from(table)
+      .update(update)
+      .eq(key, parsed.data.id)
+      .eq("tenant_id", ctx.orgId)
+      .select("id");
+    if (error) return { ok: false, error: error.message };
+    if (!written || written.length === 0) {
+      return { ok: false, error: "Nothing was updated — the record may be locked or missing." };
+    }
+  }
 
-  revalidatePath(`/${ENTITY_TABLE[kind]}/${id}`);
-  revalidatePath(`/${ENTITY_TABLE[kind]}`);
-  return { ok: true };
+  revalidatePath(entityPath(parsed.data.kind, parsed.data.id));
+  revalidatePath(`/${table}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/production");
+  revalidatePath("/reports");
+
+  return getEntityDates(parsed.data.kind, parsed.data.id);
 }
 
 /** Debug-only: read a quote's current number. Tenant-scoped. */
@@ -246,15 +290,31 @@ export async function getJobActivity(jobId: string): Promise<JobActivityResult> 
   return { ok: true, events };
 }
 
+const setJobActivityDatesSchema = z.object({
+  jobId: z.string().uuid(),
+  updates: z.array(
+    z.object({
+      id: z.string().uuid(),
+      date: z.string().trim().regex(ISO_DATE, "Each date must be a valid date."),
+    }),
+  ),
+});
+
 /**
- * Debug-only: backdate a job's activity events. Each event's created_at is set
- * to the given date. Owner/admin + tenant-scoped; only events on this job are
- * touched.
+ * Debug-only: backdate a job's activity events. Each listed event moves to the
+ * given day, keeping its time of day so the log's order within a day survives.
+ * Events already on that day are skipped. Owner/admin + tenant-scoped; only
+ * events on this job are touched.
  */
 export async function setJobActivityDates(
   jobId: string,
   updates: { id: string; date: string }[],
 ): Promise<Result> {
+  const parsed = setJobActivityDatesSchema.safeParse({ jobId, updates });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid request" };
+  }
+
   const ctx = await getActiveContext();
   if (!ctx) return { ok: false, error: "No active organization" };
   if (!MANAGE_ROLES.has(ctx.role)) {
@@ -262,16 +322,61 @@ export async function setJobActivityDates(
   }
 
   const supabase = await createClient();
-  for (const u of updates) {
-    const date = u.date.trim();
-    if (!ISO_DATE.test(date)) return { ok: false, error: "Each date must be a valid date." };
-    const { error } = await supabase
+  const { data: rows, error: readError } = await supabase
+    .from("job_events")
+    .select("id, created_at")
+    .eq("job_id", parsed.data.jobId)
+    .eq("tenant_id", ctx.orgId);
+  if (readError) return { ok: false, error: readError.message };
+  const current = new Map(
+    ((rows ?? []) as { id: string; created_at: string | null }[]).map((r) => [r.id, r.created_at]),
+  );
+
+  for (const u of parsed.data.updates) {
+    if (!current.has(u.id)) return { ok: false, error: "That event isn't on this job." };
+    const existing = current.get(u.id);
+    if (toDateInput(existing) === u.date) continue; // unchanged
+    const { data: written, error } = await supabase
       .from("job_events")
-      .update({ created_at: date })
+      .update({ created_at: moveTimestampToDay(existing, u.date) })
       .eq("id", u.id)
-      .eq("job_id", jobId)
-      .eq("tenant_id", ctx.orgId);
+      .eq("job_id", parsed.data.jobId)
+      .eq("tenant_id", ctx.orgId)
+      .select("id");
     if (error) return { ok: false, error: error.message };
+    if (!written || written.length === 0) {
+      return { ok: false, error: "An event couldn't be updated — it may be locked or missing." };
+    }
+  }
+
+  revalidatePath(`/jobs/${parsed.data.jobId}`);
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/**
+ * Debug-only: delete a job's packing slip, so the job goes back to showing
+ * "Generate packing slip". Owner/admin + tenant-scoped.
+ */
+export async function deletePackingSlip(jobId: string): Promise<Result> {
+  if (!z.string().uuid().safeParse(jobId).success) return { ok: false, error: "Invalid job" };
+
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+  if (!MANAGE_ROLES.has(ctx.role)) {
+    return { ok: false, error: "Only an owner or admin can delete packing slips." };
+  }
+
+  const supabase = await createClient();
+  const { data: deleted, error } = await supabase
+    .from("packing_slips")
+    .delete()
+    .eq("job_id", jobId)
+    .eq("tenant_id", ctx.orgId)
+    .select("id");
+  if (error) return { ok: false, error: error.message };
+  if (!deleted || deleted.length === 0) {
+    return { ok: false, error: "This job doesn't have a packing slip." };
   }
 
   revalidatePath(`/jobs/${jobId}`);

@@ -1,10 +1,13 @@
 "use client";
 
-import { Download, Printer, Truck } from "lucide-react";
+import { Download, Printer } from "lucide-react";
+
+import { TrackPackagesButton } from "@/components/invoices/track-packages";
 
 import { Button } from "@/components/ui/button";
 import { Ring } from "@/components/ui/ring";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import type { TrackingGroup } from "@/lib/shipping/carriers";
 
 /**
  * Invoice PDF preview — the invoice equivalent of <QuotePdfPreviewSheet>. Since
@@ -17,7 +20,9 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
  * replacing the preview. So the toolbar carries a normal HTML link as well,
  * which reliably opens in a new tab.
  */
-const VIEWER_PARAMS = "#toolbar=0&navpanes=0&scrollbar=0&view=Fit&zoom=page-fit";
+// No `scrollbar=0`: a document that runs past one page must stay scrollable.
+// Each page is still fitted to the panel, so a one-page document looks the same.
+const VIEWER_PARAMS = "#toolbar=0&navpanes=0&view=Fit&zoom=page-fit";
 
 type Props = {
   open: boolean;
@@ -25,8 +30,12 @@ type Props = {
   /** Server PDF URL, e.g. /api/invoices/{id}/pdf. */
   url: string;
   invoiceNumber: string;
-  /** Carrier tracking deep-link, when the invoice has one. */
-  trackingUrl?: string | null;
+  /** Saved packages grouped by carrier — drives the Track button. */
+  tracking?: TrackingGroup[];
+  /** Which document this is, for the header + iframe title. Defaults to "Invoice". */
+  docLabel?: string;
+  /** Download file name. Defaults to "<invoiceNumber>.pdf". */
+  fileName?: string;
 };
 
 export function InvoicePdfPreviewSheet({
@@ -34,10 +43,10 @@ export function InvoicePdfPreviewSheet({
   onOpenChange,
   url,
   invoiceNumber,
-  trackingUrl,
+  tracking = [],
+  docLabel = "Invoice",
+  fileName = `${invoiceNumber || "invoice"}.pdf`,
 }: Props) {
-  const fileName = `${invoiceNumber || "invoice"}.pdf`;
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -47,16 +56,13 @@ export function InvoicePdfPreviewSheet({
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <div className="text-sm font-medium">
-            Preview · <span className="text-muted-foreground">{invoiceNumber}</span>
+            Preview ·{" "}
+            <span className="text-muted-foreground">
+              {docLabel === "Invoice" ? invoiceNumber : `${docLabel} · ${invoiceNumber}`}
+            </span>
           </div>
           <div className="flex items-center gap-2">
-            {trackingUrl ? (
-              <Button asChild variant="outline" size="sm" className="gap-1.5">
-                <a href={trackingUrl} target="_blank" rel="noopener noreferrer">
-                  <Truck className="size-3.5" /> Track
-                </a>
-              </Button>
-            ) : null}
+            <TrackPackagesButton groups={tracking} />
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <a href={url} download={fileName}>
                 <Download className="size-3.5" /> Download
@@ -76,7 +82,7 @@ export function InvoicePdfPreviewSheet({
           {open ? (
             <iframe
               src={`${url}${VIEWER_PARAMS}`}
-              title={`Invoice ${invoiceNumber}`}
+              title={`${docLabel} ${invoiceNumber}`}
               className="size-full border-0"
             />
           ) : (

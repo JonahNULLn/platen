@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { CustomerAvatar } from "@/components/common/customer-avatar";
 import { DeliverJobButton } from "@/components/jobs/deliver-job-button";
 import { JobStatusBadge } from "@/components/jobs/job-status";
+import { PackingSlipButton } from "@/components/jobs/packing-slip-button";
 import { type WorkUnit, WorkUnitCard } from "@/components/jobs/work-unit-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,7 +72,7 @@ export default async function JobDetailPage({
     .maybeSingle<JobRow>();
   if (!job) notFound();
 
-  const [{ data: unitRows }, { data: eventRows }] = await Promise.all([
+  const [{ data: unitRows }, { data: eventRows }, { data: packingSlip }] = await Promise.all([
     supabase
       .from("job_work_units")
       .select("id, name, method, status, checklist")
@@ -83,6 +84,12 @@ export default async function JobDetailPage({
       .eq("job_id", id)
       .order("created_at", { ascending: false })
       .limit(25),
+    supabase
+      .from("packing_slips")
+      .select("id")
+      .eq("job_id", id)
+      .eq("tenant_id", ctx.orgId)
+      .maybeSingle<{ id: string }>(),
   ]);
 
   const units: WorkUnit[] = ((unitRows as UnitRow[] | null) ?? []).map((u) => ({
@@ -125,6 +132,12 @@ export default async function JobDetailPage({
               <FileText className="size-3.5" /> Invoice
             </Link>
           </Button>
+          <PackingSlipButton
+            jobId={job.id}
+            invoiceNumber={job.invoice_number ?? ""}
+            generated={packingSlip !== null}
+            canGenerate={canEdit}
+          />
           {canEdit && job.status === "ready" ? <DeliverJobButton jobId={job.id} /> : null}
         </div>
       </div>

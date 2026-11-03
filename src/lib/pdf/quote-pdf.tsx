@@ -85,7 +85,7 @@ const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 // Strict three-color palette: true black main text, one gray for both
 // secondary text AND every divider, white background. Row dividers use a
 // thinner stroke so the same gray reads quieter line-by-line.
-const COLORS = {
+export const COLORS = {
   text: "#000000",
   muted: "#4b5563",
   // Header chip background — intentionally a much lighter gray than the text

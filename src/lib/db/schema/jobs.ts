@@ -136,3 +136,47 @@ export const jobEvents = pgTable(
   },
   (table) => [index("job_events_job_id_idx").on(table.jobId)],
 );
+
+/**
+ * A job's packing slip. The slip's contents (items, ship-to, tracking) render
+ * from the invoice snapshot each time it's opened; this row records that one
+ * was generated, plus per-slip options.
+ *
+ * Every option column is NULLABLE and NULL MEANS "USE THE DEFAULT" — the
+ * renderer fills in its built-in text/behaviour for anything left empty. So
+ * new options can be added later without backfilling, and existing slips just
+ * keep rendering the default way.
+ */
+export const packingSlips = pgTable(
+  "packing_slips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // One slip per job for now. Partial shipments (several slips per job)
+    // would mean dropping this unique constraint.
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+
+    // ── Options (NULL = default) ────────────────────────────────────────
+    /** Printed "Ship date". Default: the day the slip was generated. */
+    shipDate: date("ship_date"),
+    /** Bold line under the items. Default: "Please count and inspect your order on arrival." */
+    noteTitle: text("note_title"),
+    /** Text under the note title. Default: the "reach out to <org email>" line. */
+    noteBody: text("note_body"),
+    /** Bottom-of-page line. Default: "Thank you for your business!" */
+    footerText: text("footer_text"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique("packing_slips_job_id_unique").on(table.jobId),
+    index("packing_slips_tenant_id_idx").on(table.tenantId),
+  ],
+);

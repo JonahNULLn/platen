@@ -208,6 +208,52 @@ export async function toggleChecklistItem(
   return { ok: true };
 }
 
+/**
+ * Generate the job's packing slip: creates its `packing_slips` row (all
+ * options empty = defaults) and logs it. Idempotent — a job that already has a
+ * slip keeps it. The PDF renders on demand from the invoice snapshot.
+ * Production roles can do this, since they're the ones packing the boxes.
+ */
+export async function generatePackingSlip(jobId: string): Promise<Result> {
+  if (!z.string().uuid().safeParse(jobId).success) return { ok: false, error: "Invalid job" };
+
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+  if (!PRODUCTION_ROLES.has(ctx.role)) {
+    return { ok: false, error: "You don't have permission to generate packing slips." };
+  }
+
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("invoice_id")
+    .eq("id", jobId)
+    .eq("tenant_id", ctx.orgId)
+    .maybeSingle<{ invoice_id: string }>();
+  if (!job) return { ok: false, error: "Job not found." };
+
+  const { error } = await supabase.from("packing_slips").insert({
+    tenant_id: ctx.orgId,
+    job_id: jobId,
+    invoice_id: job.invoice_id,
+    created_by: ctx.userId,
+  });
+  // 23505 = the job already has a slip (unique job_id) — nothing to do.
+  if (error?.code === "23505") return { ok: true };
+  if (error) return { ok: false, error: error.message };
+
+  await supabase.from("job_events").insert({
+    tenant_id: ctx.orgId,
+    job_id: jobId,
+    actor_id: ctx.userId,
+    type: "packing_slip",
+    message: "Packing slip generated",
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  return { ok: true };
+}
+
 /** Mark a job delivered (only once every unit has reached "ready"). */
 export async function markJobDelivered(jobId: string): Promise<Result> {
   const ctx = await getActiveContext();

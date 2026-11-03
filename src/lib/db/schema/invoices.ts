@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { PaymentInstallment } from "@/lib/payments/payment-terms";
+import type { InvoiceShipment } from "@/lib/shipping/carriers";
 import { organizations, profiles } from "./auth";
 import { customers } from "./customers";
 import type { PlacementEntry, SizeBreakdownEntry } from "./quotes";
@@ -103,10 +104,17 @@ export const invoices = pgTable(
     /** Real shipping cost, filled in on the invoice once the order ships.
      *  Null means "not known yet" — the invoice still bills the cap. */
     shippingActual: numeric("shipping_actual", { precision: 12, scale: 2 }),
-    /** Carrier tracking number, entered alongside the actual shipping cost. */
+    /**
+     * Every package (label) the order shipped in: carrier + tracking number,
+     * plus each label's cost on capped-estimate invoices (their sum is
+     * `shippingActual`). The source of truth for tracking.
+     */
+    shipments: jsonb("shipments").$type<InvoiceShipment[]>().default([]).notNull(),
+    /** DEPRECATED mirror of the first package's tracking number, kept in sync
+     *  only so builds deployed before `shipments` existed (which share this
+     *  database) still show tracking. Read `shipments`; drop this later. */
     trackingNumber: text("tracking_number"),
-    /** One of `shippingCarriers` — drives the tracking deep-link. "other"
-     *  (or null) means we can't build a URL, so the number stays plain text. */
+    /** DEPRECATED mirror of the first package's carrier — see trackingNumber. */
     shippingCarrier: text("shipping_carrier"),
     discountType: text("discount_type").default("amount").notNull(),
     discountValue: numeric("discount_value", { precision: 12, scale: 2 }).default("0").notNull(),

@@ -1,10 +1,17 @@
+import type { PackingSlip, PackingSlipRow } from "@/lib/pdf/packing-slip-pdf";
 import type { PdfLineRow, PdfParty, PdfQuote } from "@/lib/pdf/quote-pdf";
 import type { ShippingMode } from "@/lib/quotes/shipping";
 import { shippingRowLabel } from "@/lib/quotes/shipping";
 import { computeLineTotals, computeQuoteTotals, round2 } from "@/lib/quotes/totals";
 import type { BuilderLine } from "@/lib/quotes/types";
 import { lineToCalc, sizeRank } from "@/lib/quotes/types";
-import { trackingUrl } from "@/lib/shipping/carriers";
+import {
+  CARRIER_LABELS,
+  type InvoiceShipment,
+  parseShipments,
+  trackingGroups,
+  trackingUrl,
+} from "@/lib/shipping/carriers";
 
 /** Org-side branding info the PDF needs. */
 export type PdfOrg = {
@@ -24,11 +31,9 @@ export type PdfOrg = {
 /** Matches the PDF's own money formatting, for text baked into labels. */
 const pdfMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-const dateFormatter = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
+// Spelled out by hand rather than Intl "en-GB" short months, whose output
+// depends on the ICU version — newer ones print "Sept" instead of "Sep".
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
  * Format a date for the PDF. Date-only values (YYYY-MM-DD) are parsed by parts:
@@ -40,7 +45,7 @@ function formatDate(iso: string | null | undefined): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return dateFormatter.format(d);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 /**
@@ -338,8 +343,8 @@ type DbInvoice = {
   shipping_mode: string | null;
   shipping_cap: string | number | null;
   shipping_actual: string | number | null;
-  tracking_number: string | null;
-  shipping_carrier: string | null;
+  /** JSONB package list (carrier + tracking per label). */
+  shipments: unknown;
   total: string | number;
   deposit_amount: string | number;
   amount_paid: string | number;
@@ -349,6 +354,25 @@ type DbInvoice = {
   terms: string | null;
   notes: string | null;
 };
+
+/**
+ * The invoice's one "Tracking" line. A single package prints its number, as
+ * always. Several still take one line — the first number plus "+N more" — and
+ * link to the tab that tracks every package with that carrier (or just the
+ * first package when the carrier can't track several at once).
+ */
+function pdfTracking(
+  shipments: InvoiceShipment[],
+): Pick<PdfQuote, "trackingNumber" | "trackingUrl"> {
+  const [first] = trackingGroups(shipments);
+  const firstNumber = first?.numbers[0];
+  if (!first || !firstNumber) return { trackingNumber: null, trackingUrl: null };
+  const total = shipments.filter((s) => s.trackingNumber.trim() !== "").length;
+  return {
+    trackingNumber: total > 1 ? `${firstNumber} +${total - 1} more` : firstNumber,
+    trackingUrl: first.url ?? trackingUrl(first.carrier, firstNumber),
+  };
+}
 
 /**
  * Build the PDF model from a saved invoice — identical to the quote PDF (same
@@ -408,8 +432,7 @@ export function pdfInvoiceFromDb(invoice: DbInvoice, items: DbLineItem[], org: P
         : ((invoice.shipping_mode ?? "standard") as ShippingMode),
       pdfMoney.format(num(invoice.shipping_cap ?? invoice.shipping_amount)),
     ),
-    trackingNumber: invoice.tracking_number,
-    trackingUrl: trackingUrl(invoice.shipping_carrier, invoice.tracking_number),
+    ...pdfTracking(parseShipments(invoice.shipments)),
     total,
     depositAmount: num(invoice.deposit_amount),
     paymentMethod: invoice.payment_method_default,
@@ -544,5 +567,122 @@ export function pdfQuoteFromBuilder(snap: BuilderSnapshot, org: PdfOrg): PdfQuot
     paymentTerms: snap.paymentTerms || null,
     terms: snap.terms || null,
     notes: snap.notes || null,
+  };
+}
+
+// ── Packing slip (from a job's invoice) ─────────────────────────────────
+
+type DbSlipInvoice = {
+  invoice_number: string;
+  issue_date: string;
+  customer_name: string | null;
+  customer_company: string | null;
+  customer_address_line1: string | null;
+  customer_address_line2: string | null;
+  customer_city: string | null;
+  customer_state: string | null;
+  customer_postal_code: string | null;
+  customer_country: string | null;
+  purchase_order: string | null;
+  approved_by_name: string | null;
+  shipments: unknown;
+};
+
+type DbSlipLineItem = {
+  item_type: string;
+  name: string;
+  description: string | null;
+  quantity: number;
+  color_name: string | null;
+  sort_order: number | null;
+  sizes_breakdown: { size: string; qty: number }[] | null;
+  placements_data: { placementName: string; colorCount: number }[] | null;
+};
+
+/** A `packing_slips` row. Every option is nullable; null = the default. */
+type DbPackingSlip = {
+  created_at: string;
+  ship_date: string | null;
+  note_title: string | null;
+  note_body: string | null;
+  footer_text: string | null;
+};
+
+/** Treat blank text like an unset option, so clearing a field restores the default. */
+const option = (v: string | null | undefined): string | null => (v?.trim() ? v.trim() : null);
+
+/**
+ * Build the packing slip from a job's invoice + its packing_slips row.
+ * Everything physical on the invoice gets a row — fee lines (setup, rush, art)
+ * aren't in the box, so they're left off. Shipped = ordered for now (no
+ * partial shipments yet). Any option left empty on the slip row falls back to
+ * its default here, so the template only ever sees finished text.
+ */
+export function pdfPackingSlipFromDb(
+  invoice: DbSlipInvoice,
+  items: DbSlipLineItem[],
+  org: PdfOrg,
+  slipRow: DbPackingSlip,
+): PackingSlip {
+  const rows: PackingSlipRow[] = [...items]
+    .filter((li) => li.item_type !== "fee")
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    .map((li) => {
+      const sizes = (li.sizes_breakdown ?? [])
+        .filter((s) => (s.qty || 0) > 0)
+        .sort((a, b) => sizeRank(a.size) - sizeRank(b.size) || a.size.localeCompare(b.size));
+      const ordered = sizes.length > 0 ? sizes.reduce((sum, s) => sum + s.qty, 0) : li.quantity;
+      const placements = (li.placements_data ?? [])
+        .filter((p) => p.placementName?.trim())
+        .map((p) =>
+          p.colorCount > 0 ? `${p.placementName} (${p.colorCount} color)` : p.placementName,
+        );
+      return {
+        name: li.color_name ? `${li.name}, ${li.color_name}` : li.name,
+        detail: placements.length > 0 ? placements.join(" · ") : li.description,
+        sizes: sizes.map((s) => `${s.size} ${s.qty}`),
+        ordered,
+        shipped: ordered,
+      };
+    });
+
+  const shipments = parseShipments(invoice.shipments);
+  const carriers = [
+    ...new Set(
+      shipments
+        .filter((s) => s.trackingNumber.trim() !== "" && s.carrier !== "other")
+        .map((s) => CARRIER_LABELS[s.carrier]),
+    ),
+  ];
+
+  const contact = org.email ?? org.phone ?? "us";
+
+  return {
+    invoiceNumber: invoice.invoice_number,
+    from: orgToFrom(org),
+    shipTo: {
+      name: invoice.customer_company || invoice.customer_name || null,
+      address: buildAddress(
+        invoice.customer_address_line1,
+        invoice.customer_address_line2,
+        invoice.customer_city,
+        invoice.customer_state,
+        invoice.customer_postal_code,
+        invoice.customer_country,
+      ),
+    },
+    purchaseOrder: invoice.purchase_order,
+    dateOrdered: formatDate(invoice.issue_date),
+    // Default ship date: the day the slip was generated.
+    shipDate: formatDate(slipRow.ship_date ?? slipRow.created_at),
+    carrier: carriers.length > 0 ? carriers.join(", ") : null,
+    ...pdfTracking(shipments),
+    approvedBy: invoice.approved_by_name,
+    items: rows,
+    noteTitle: option(slipRow.note_title) ?? "Please count and inspect your order on arrival.",
+    noteBody:
+      option(slipRow.note_body) ??
+      `If anything is missing or not right, reach out to ${contact} and we'll make it right.`,
+    footerText: option(slipRow.footer_text) ?? "Thank you for your business!",
   };
 }

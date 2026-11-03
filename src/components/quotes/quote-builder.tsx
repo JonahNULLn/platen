@@ -244,6 +244,23 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
     initial?.adjustments ?? emptyAdjustments(refData.defaultTaxRate, false),
   );
   const [meta, setMeta] = useState<MetaSlice>(initial?.meta ?? emptyMeta(refData.paymentTerms));
+
+  // State is seeded from `initial` once, so a server-side change to the dates
+  // (the debug date editor + router.refresh) would otherwise never reach the
+  // inputs — and the next save would quietly write the stale dates back. Pull
+  // them in whenever the stored values change. After our own save the props
+  // equal the state already, so this is a no-op and never clobbers edits.
+  const storedQuoteDate = initial?.meta.quoteDate;
+  const storedExpiresAt = initial?.meta.expiresAt;
+  useEffect(() => {
+    if (storedQuoteDate === undefined) return;
+    setMeta((m) => (m.quoteDate === storedQuoteDate ? m : { ...m, quoteDate: storedQuoteDate }));
+  }, [storedQuoteDate]);
+  useEffect(() => {
+    if (storedExpiresAt === undefined) return;
+    setMeta((m) => (m.expiresAt === storedExpiresAt ? m : { ...m, expiresAt: storedExpiresAt }));
+  }, [storedExpiresAt]);
+
   const [lines, setLines] = useState<BuilderLine[]>(initial?.lines ?? []);
   const [saving, setSaving] = useState(false);
   // The quote's id once it exists. Starts from the edit prop and is set after

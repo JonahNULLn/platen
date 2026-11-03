@@ -18,6 +18,7 @@ import {
 import { Ring } from "@/components/ui/ring";
 import { voidInvoice } from "@/lib/actions/invoices";
 import { generateJob } from "@/lib/actions/jobs";
+import type { TrackingGroup } from "@/lib/shipping/carriers";
 
 export function InvoiceHeaderActions({
   invoiceId,
@@ -25,14 +26,15 @@ export function InvoiceHeaderActions({
   status,
   canManage,
   existingJobId,
-  trackingUrl,
+  tracking,
 }: {
   invoiceId: string;
   invoiceNumber: string;
   status: string;
   canManage: boolean;
   existingJobId: string | null;
-  trackingUrl: string | null;
+  /** Saved packages grouped by carrier, for the preview's Track button. */
+  tracking: TrackingGroup[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -134,7 +136,7 @@ export function InvoiceHeaderActions({
         onOpenChange={setPreviewOpen}
         url={pdfUrl}
         invoiceNumber={invoiceNumber}
-        trackingUrl={trackingUrl}
+        tracking={tracking}
       />
     </>
   );

@@ -3,6 +3,7 @@
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 
 import { navSections } from "@/components/layout/nav-config";
 import { OrgSwitcher } from "@/components/layout/org-switcher";
@@ -22,6 +23,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +60,22 @@ export function AppSidebar({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentQuery = searchParams.toString();
+  const { setOpenMobile } = useSidebar();
+
+  // On mobile the sidebar is a drawer over the page. Close it once a link's
+  // page has loaded (the route changed), so you actually see where you went.
+  // Keyed on the location only — never on the open state, or it would shut
+  // the moment it opens. Harmless on desktop (openMobile is already false).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run on navigation only
+  useEffect(() => {
+    setOpenMobile(false);
+  }, [pathname, currentQuery]);
+
+  /** Tapping the page you're already on doesn't navigate, so close directly. */
+  function closeIfCurrent(href: string) {
+    const here = currentQuery ? `${pathname}?${currentQuery}` : pathname;
+    if (href === here) setOpenMobile(false);
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -82,7 +100,7 @@ export function AppSidebar({
                         tooltip={item.label}
                         className="hover:bg-sidebar-accent/50 data-[active=true]:bg-sidebar-accent"
                       >
-                        <Link href={item.href}>
+                        <Link href={item.href} onClick={() => closeIfCurrent(item.href)}>
                           <Icon />
                           <span>{item.label}</span>
                           {item.children ? (
@@ -120,7 +138,12 @@ export function AppSidebar({
                                       child.href
                                     }
                                   >
-                                    <Link href={child.href}>{child.label}</Link>
+                                    <Link
+                                      href={child.href}
+                                      onClick={() => closeIfCurrent(child.href)}
+                                    >
+                                      {child.label}
+                                    </Link>
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
                               ))}

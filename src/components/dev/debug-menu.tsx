@@ -16,8 +16,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Shortcut } from "@/components/common/shortcut";
+import { EntityDatesEditor } from "@/components/dev/entity-dates";
 import { JobActivityDatesDialog } from "@/components/dev/job-activity-dates-dialog";
 import { MigrateQuotesDialog } from "@/components/dev/migrate-quotes-dialog";
+import { PackingSlipDebugSection } from "@/components/dev/packing-slip-debug-section";
 import { usePlatform } from "@/components/providers/platform-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,13 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Ring } from "@/components/ui/ring";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  getEntityDates,
-  getQuoteNumber,
-  setEntityDates,
-  setQuoteNumber,
-} from "@/lib/actions/debug";
-import { DATE_FIELDS } from "@/lib/debug/date-fields";
+import { getQuoteNumber, setQuoteNumber } from "@/lib/actions/debug";
 import { cn } from "@/lib/utils";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -59,29 +55,18 @@ export function DebugMenu() {
   const [open, setOpen] = useState(false);
   const [migrateOpen, setMigrateOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
-  const [dates, setDates] = useState<Record<string, string>>({});
-  const [loadingDates, setLoadingDates] = useState(false);
-  const [savingDates, setSavingDates] = useState(false);
   const [quoteNumberInput, setQuoteNumberInput] = useState("");
   const [savingNumber, setSavingNumber] = useState(false);
 
-  // Load the current entity's dates (and, for quotes, its number) whenever the
-  // panel opens on a detail page.
+  // Load the quote's number whenever the panel opens on a quote. (Dates load
+  // inside their own sections, which only mount while the panel is open.)
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch only when the panel opens on a new entity
   useEffect(() => {
-    if (!open || !target) return;
+    if (!open || !target || target.kind !== "quote") return;
     let cancelled = false;
-    setLoadingDates(true);
-    getEntityDates(target.kind, target.id).then((res) => {
-      if (cancelled) return;
-      setLoadingDates(false);
-      setDates(res.ok ? res.dates : {});
+    getQuoteNumber(target.id).then((res) => {
+      if (!cancelled) setQuoteNumberInput(res.ok ? res.number : "");
     });
-    if (target.kind === "quote") {
-      getQuoteNumber(target.id).then((res) => {
-        if (!cancelled) setQuoteNumberInput(res.ok ? res.number : "");
-      });
-    }
     return () => {
       cancelled = true;
     };
@@ -97,19 +82,6 @@ export function DebugMenu() {
       return;
     }
     toast.success("Quote number updated");
-    router.refresh();
-  }
-
-  async function handleSaveDates() {
-    if (!target || savingDates) return;
-    setSavingDates(true);
-    const res = await setEntityDates(target.kind, target.id, dates);
-    setSavingDates(false);
-    if (!res.ok) {
-      toast.error("Couldn't update dates", { description: res.error });
-      return;
-    }
-    toast.success("Dates updated");
     router.refresh();
   }
 
@@ -264,47 +236,16 @@ export function DebugMenu() {
                   <CalendarClock className="size-3.5" /> Dates
                 </h3>
                 {target ? (
-                  loadingDates ? (
-                    <div className="flex justify-center py-3">
-                      <Ring size="sm" className="text-muted-foreground" />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {DATE_FIELDS[target.kind].map((f) => (
-                        <div key={f.column} className="flex items-center justify-between gap-2">
-                          <label
-                            htmlFor={`dbg-date-${f.column}`}
-                            className="text-[11px] text-muted-foreground"
-                          >
-                            {f.label}
-                          </label>
-                          <Input
-                            id={`dbg-date-${f.column}`}
-                            type="date"
-                            value={dates[f.column] ?? ""}
-                            onChange={(e) =>
-                              setDates((d) => ({ ...d, [f.column]: e.target.value }))
-                            }
-                            className="h-7 w-36 text-xs"
-                          />
-                        </div>
-                      ))}
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        onClick={handleSaveDates}
-                        disabled={savingDates}
-                      >
-                        {savingDates ? <Ring size="sm" className="text-current" /> : "Save dates"}
-                      </Button>
-                    </div>
-                  )
+                  <EntityDatesEditor kind={target.kind} id={target.id} />
                 ) : (
                   <p className="text-[11px] text-muted-foreground/60">
                     Open a quote, invoice, or job to edit its dates.
                   </p>
                 )}
               </section>
+
+              {/* Only renders when this job has a generated packing slip. */}
+              {target?.kind === "job" ? <PackingSlipDebugSection jobId={target.id} /> : null}
 
               {target?.kind === "job" ? (
                 <>
