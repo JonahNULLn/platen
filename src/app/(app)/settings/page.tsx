@@ -6,15 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getAuthUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 type OwnedMembership = { role: string; organizations: { name: string } | null };
 
 export default async function AccountSettingsPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   const { data: profile } = await supabase
     .from("profiles")

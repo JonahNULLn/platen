@@ -2,13 +2,12 @@ import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/common/page-header";
 import { CustomerForm } from "@/components/customers/customer-form";
+import { getAuthUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function NewCustomerPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) redirect("/login");
 
   const { data: membership } = await supabase

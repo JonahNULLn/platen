@@ -6,7 +6,7 @@ import { type TeamMember, TeamMembers } from "@/components/settings/team-members
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getActiveContext, getActiveOrgId } from "@/lib/auth/session";
+import { getActiveContext, getActiveOrgId, getAuthUser } from "@/lib/auth/session";
 import { isManager, requireSettingsAccess } from "@/lib/auth/settings-access";
 import { createClient } from "@/lib/supabase/server";
 
@@ -31,9 +31,7 @@ export default async function TeamSettingsPage() {
   await requireSettingsAccess(isManager(ctx.role));
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const orgId = await getActiveOrgId();
 
   const [{ data: org }, { data: memberships }] = await Promise.all([

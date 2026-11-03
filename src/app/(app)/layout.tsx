@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppTopbar } from "@/components/layout/app-topbar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { getActiveContext } from "@/lib/auth/session";
+import { getActiveContext, getAuthUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 type MembershipWithOrg = {
@@ -17,25 +17,26 @@ type MembershipWithOrg = {
 
 export default async function AppShellLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
+  // Verified locally (no Auth round trip) and shared with the page via cache().
+  const user = await getAuthUser();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Pull canonical profile data (first_name/last_name/avatar_url) from the
-  // profiles table — that's the source of truth, auth.user_metadata is just
-  // the initial seed at signup.
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("first_name, last_name, avatar_url")
-    .eq("id", user?.id ?? "")
-    .maybeSingle();
-
-  // Orgs the user belongs to, via memberships.
-  const { data: memberships } = await supabase
-    .from("memberships")
-    .select("organizations(id, name, logo_url, subscription_plan)")
-    .eq("user_id", user?.id ?? "");
+  // Everything below is independent, so fetch it in parallel:
+  //   - canonical profile data (profiles is the source of truth;
+  //     auth.user_metadata is just the initial seed at signup)
+  //   - the orgs the user belongs to, for the switcher
+  //   - the cookie-aware active org, so the switcher highlights the right one
+  const [{ data: profile }, { data: memberships }, activeContext] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("first_name, last_name, avatar_url")
+      .eq("id", user?.id ?? "")
+      .maybeSingle(),
+    supabase
+      .from("memberships")
+      .select("organizations(id, name, logo_url, subscription_plan)")
+      .eq("user_id", user?.id ?? ""),
+    getActiveContext(),
+  ]);
 
   const orgs = ((memberships as MembershipWithOrg[] | null) ?? [])
     .map((m) => m.organizations)
@@ -47,8 +48,6 @@ export default async function AppShellLayout({ children }: { children: ReactNode
       subscriptionPlan: o.subscription_plan ?? "trial",
     }));
 
-  // Cookie-aware active org so the switcher highlights the right one.
-  const activeContext = await getActiveContext();
   const activeOrgId = activeContext?.orgId ?? null;
   const isOwner = activeContext?.role === "owner";
 

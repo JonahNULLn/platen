@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 import { env } from "@/lib/config/env";
 import { createClient } from "@/lib/supabase/server";
@@ -23,6 +24,31 @@ export function activeOrgCookieOptions() {
 
 export type ActiveContext = { userId: string; orgId: string; role: string };
 
+export type AuthUser = { id: string; email: string | null };
+
+/**
+ * The signed-in user, verified LOCALLY — no network call to Supabase.
+ *
+ * `getClaims()` checks the session JWT's signature against the project's
+ * public signing key (ES256; fetched once and cached per server process) and
+ * its expiry. That's the same check the database applies to every query under
+ * RLS, so it grants nothing the token couldn't already do. The one difference
+ * from `getUser()`: a token revoked elsewhere (signed out on another device,
+ * account deleted) keeps verifying until it expires (≤ 1h) — again exactly as
+ * it would at the database. Data-changing actions that are security-sensitive
+ * (account deletion, team/org management) still use `getUser()`.
+ *
+ * Wrapped in React `cache()`, so a request's layout, page and helpers share
+ * one lookup.
+ */
+export const getAuthUser = cache(async (): Promise<AuthUser | null> => {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (!claims?.sub) return null;
+  return { id: claims.sub, email: typeof claims.email === "string" ? claims.email : null };
+});
+
 /**
  * The signed-in user's identity, active org, and role in that org.
  *
@@ -30,15 +56,13 @@ export type ActiveContext = { userId: string; orgId: string; role: string };
  * *if* the user still belongs to it; otherwise it falls back to their first
  * membership. This is the single place that resolves which tenant a request
  * belongs to. Returns null when there's no session or no membership — callers
- * should treat that as unauthorized / not-yet-onboarded.
+ * should treat that as unauthorized / not-yet-onboarded. Cached per request.
  */
-export async function getActiveContext(): Promise<ActiveContext | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getActiveContext = cache(async (): Promise<ActiveContext | null> => {
+  const user = await getAuthUser();
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data: memberships } = await supabase
     .from("memberships")
     .select("organization_id, role")
@@ -56,7 +80,7 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     (wanted ? memberships.find((m) => m.organization_id === wanted) : undefined) ?? first;
 
   return { userId: user.id, orgId: active.organization_id, role: active.role };
-}
+});
 
 /**
  * Convenience wrapper when a caller only needs the active org id. Resolves via

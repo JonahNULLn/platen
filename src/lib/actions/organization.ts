@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { ONBOARDED_COOKIE } from "@/lib/auth/onboarding-cookie";
 import {
   ACTIVE_ORG_COOKIE,
   activeOrgCookieOptions,
@@ -198,6 +199,9 @@ export async function deleteOrganization(): Promise<DeleteOrgResult> {
   if (cookieStore.get(ACTIVE_ORG_COOKIE)?.value === orgId) {
     cookieStore.delete(ACTIVE_ORG_COOKIE);
   }
+  // Forget "finished onboarding" — the caller may now belong to no shop, so
+  // the middleware must re-check instead of trusting the remembered answer.
+  cookieStore.delete(ONBOARDED_COOKIE);
 
   revalidatePath("/", "layout");
   redirect("/onboarding");

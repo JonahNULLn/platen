@@ -1,6 +1,9 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { ONBOARDED_COOKIE } from "@/lib/auth/onboarding-cookie";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -63,6 +66,7 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
   } catch {
     // Token is already invalid — cookies get replaced on next request anyway.
   }
+  (await cookies()).delete(ONBOARDED_COOKIE);
 
   redirect("/login?deleted=1");
 }

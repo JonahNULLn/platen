@@ -1,4 +1,4 @@
-import { getActiveOrgId } from "@/lib/auth/session";
+import { getActiveOrgId, getAuthUser } from "@/lib/auth/session";
 import type { CustomProductConfig } from "@/lib/catalog/custom-product";
 import type { PaymentInstallment } from "@/lib/payments/payment-terms";
 import type { PdfOrg } from "@/lib/pdf/snapshot";
@@ -76,9 +76,7 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
   if (!orgId) return null;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   const [
     { data: customers },
