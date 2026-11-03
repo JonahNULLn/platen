@@ -66,7 +66,9 @@ export function RevenueChart({ data, subtitle }: { data: RevenuePoint[]; subtitl
           role="img"
           aria-label={`Revenue for the last ${data.length} months`}
         >
-          <title>Revenue, last {data.length} months</title>
+          {/* One template string, not "text {n} text": React 19 requires <title>
+              children to be a single string, or it hydration-mismatches. */}
+          <title>{`Revenue, last ${data.length} months`}</title>
 
           {/* Recessive gridlines + max label */}
           {[0, 0.5, 1].map((t) => {
